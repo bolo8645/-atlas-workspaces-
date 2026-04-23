@@ -1,0 +1,10 @@
+{
+  "models": [
+    {
+      "title": "Local Llama3",
+      "provider": "ollama",
+      "model": "llama3",
+      "baseUrl": "http://127.0.0.1:11434"
+    }
+  ]
+}

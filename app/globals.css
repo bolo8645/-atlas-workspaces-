@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+:root {
+  --background: #070707;
+  --foreground: #f5f3ee;
+  --ember: #d43f2a;
+  --signal: #2dd4bf;
+  --gold: #f1c75b;
+  --panel: #141414;
+  --muted: #a8a29e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: rgba(241, 199, 91, 0.35);
+}
+
+.ascu-rich-editor .ProseMirror {
+  min-height: 100%;
+  outline: none;
+}
+
+.ascu-rich-editor .ProseMirror p {
+  margin: 0 0 0.8rem;
+}
+
+.ascu-rich-editor .ProseMirror h1,
+.ascu-rich-editor .ProseMirror h2,
+.ascu-rich-editor .ProseMirror h3 {
+  color: white;
+  font-weight: 900;
+  line-height: 1.15;
+  margin: 1rem 0 0.65rem;
+}
+
+.ascu-rich-editor .ProseMirror h1 {
+  font-size: 1.75rem;
+}
+
+.ascu-rich-editor .ProseMirror h2 {
+  font-size: 1.35rem;
+}
+
+.ascu-rich-editor .ProseMirror h3 {
+  font-size: 1.1rem;
+}
+
+.ascu-rich-editor .ProseMirror ul,
+.ascu-rich-editor .ProseMirror ol {
+  margin: 0 0 0.8rem 1.4rem;
+  padding: 0;
+}
+
+.ascu-rich-editor .ProseMirror ul {
+  list-style: disc;
+}
+
+.ascu-rich-editor .ProseMirror ol {
+  list-style: decimal;
+}
+
+.ascu-rich-editor .ProseMirror table {
+  border-collapse: collapse;
+  margin: 1rem 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.ascu-rich-editor .ProseMirror td,
+.ascu-rich-editor .ProseMirror th {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  min-width: 4rem;
+  padding: 0.35rem 0.5rem;
+  vertical-align: top;
+}
+
+.ascu-rich-editor .ProseMirror th {
+  background: rgba(255, 255, 255, 0.06);
+  font-weight: 700;
+}
+
+.ascu-rich-editor .ProseMirror .selectedCell::after {
+  background: rgba(45, 212, 191, 0.16);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+
+.ascu-search-match {
+  background: rgba(241, 199, 91, 0.32);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(241, 199, 91, 0.18);
+}
+
+.atlas-entity-match {
+  background: rgba(45, 212, 191, 0.09);
+  border-radius: 3px;
+  box-shadow: inset 0 -1px 0 rgba(45, 212, 191, 0.7);
+  cursor: pointer;
+}
+
+.cinematic-bg {
+  background-image:
+    linear-gradient(90deg, rgba(7, 7, 7, 0.9) 0%, rgba(7, 7, 7, 0.62) 42%, rgba(7, 7, 7, 0.16) 100%),
+    url("https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=2200&q=80");
+  background-position: center;
+  background-size: cover;
+}
+
+.noise {
+  position: relative;
+}
+
+.noise::after {
+  background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 42px 42px;
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}

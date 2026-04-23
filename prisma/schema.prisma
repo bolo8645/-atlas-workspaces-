@@ -1,0 +1,697 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Alignment {
+  HERO
+  ANTIHERO
+  VILLAIN
+  NEUTRAL
+}
+
+enum EventScale {
+  STREET
+  CITY
+  REGIONAL
+  GLOBAL
+  COSMIC
+}
+
+enum NoteStatus {
+  NEW
+  TRIAGED
+  ACTIVE
+  NEEDS_REVIEW
+  ARCHIVED
+}
+
+enum MetadataSource {
+  IMPORTED
+  MANUAL
+  INFERRED
+  SYSTEM
+}
+
+enum ImportFileStatus {
+  IMPORTED
+  UPDATED
+  SKIPPED
+  ERRORED
+  DUPLICATE_REVIEW
+}
+
+enum ReviewItemType {
+  DUPLICATE
+  PARSE_WARNING
+  IMPORT_ERROR
+  MISSING_METADATA
+}
+
+enum ReviewStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum LinkKind {
+  URL
+  WIKI
+  INTERNAL_FILE
+  NOTE_REFERENCE
+}
+
+enum EntityKind {
+  CHARACTER
+  TEAM
+  LOCATION
+  ORGANIZATION
+  STORY_ARC
+  ARTIFACT
+  EVENT
+  FAMILY
+  POWER_SYSTEM
+  THREAT
+  OTHER
+}
+
+enum RelatedNoteSource {
+  MANUAL
+  INFERRED
+}
+
+model SourceCollection {
+  id         String      @id @default(cuid())
+  name       String
+  rootPath   String      @unique
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  importRuns ImportRun[]
+  notes      Note[]
+
+  @@index([name])
+}
+
+model Workspace {
+  id              String           @id @default(cuid())
+  userId          String?
+  name            String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  entities        Entity[]
+  navigationNodes NavigationNode[]
+  notes           Note[]
+  relationships   Relationship[]
+  relationshipTypes RelationshipType[]
+
+  @@index([userId])
+  @@index([name])
+}
+
+model NavigationNode {
+  id          String           @id @default(cuid())
+  workspaceId String
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  parentId    String?
+  parent      NavigationNode?  @relation("NavigationTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children    NavigationNode[] @relation("NavigationTree")
+  slug        String
+  title       String
+  description String?          @db.Text
+  sortOrder   Int              @default(0)
+  isVisible   Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  notes       Note[]
+
+  @@unique([parentId, slug])
+  @@unique([workspaceId, parentId, slug])
+  @@index([workspaceId])
+  @@index([parentId])
+  @@index([sortOrder])
+  @@index([isVisible])
+}
+
+model Note {
+  id                 String            @id @default(cuid())
+  workspaceId        String
+  workspace          Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  sourceCollectionId String?
+  sourceCollection   SourceCollection? @relation(fields: [sourceCollectionId], references: [id], onDelete: SetNull)
+  navigationNodeId   String?
+  navigationNode     NavigationNode?   @relation(fields: [navigationNodeId], references: [id], onDelete: SetNull)
+  entityId           String?
+  entity             Entity?           @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  parentNoteId       String?
+  parent             Note?             @relation("NoteHierarchy", fields: [parentNoteId], references: [id], onDelete: SetNull)
+  children           Note[]            @relation("NoteHierarchy")
+  sourceIdentity     String            @unique
+  sourcePath         String
+  sourceFileName     String
+  sourceExtension    String
+  sourceChecksum     String
+  contentFingerprint String
+  title              String
+  titleFingerprint   String
+  noteType           String            @default("draft")
+  aliases            String[]          @default([])
+  importedContent    String            @db.Text
+  plainTextContent   String            @db.Text
+  excerpt            String?
+  createdDate        DateTime?
+  updatedDate        DateTime?
+  importedAt         DateTime          @default(now())
+  lastSeenAt         DateTime          @default(now())
+  folderName         String?
+  notebookName       String?
+  status             NoteStatus        @default(NEW)
+  sortOrder          Int               @default(0)
+  isPinned           Boolean           @default(false)
+  priority           Int?
+  entityType         EntityKind?
+  parseQuality       Int               @default(100)
+  metadataNotes      String?           @db.Text
+  curatedSummary     String?           @db.Text
+  publicVisibility   Boolean           @default(false)
+  timelineStartDate  DateTime?
+  timelineEndDate    DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  attachments        Attachment[]
+  categories         NoteCategory[]
+  duplicateCandidates ReviewItem[]     @relation("CandidateReviewNote")
+  duplicateReviews   ReviewItem[]      @relation("PrimaryReviewNote")
+  entities           NoteEntity[]
+  importEvents       NoteImportEvent[]
+  inboundLinks       Link[]            @relation("NoteInboundLinks")
+  links              Link[]            @relation("NoteOutboundLinks")
+  metadataOverride   MetadataOverride?
+  parseWarnings      ParseWarning[]
+  relatedFrom        RelatedNote[]     @relation("RelatedNoteFrom")
+  relatedTo          RelatedNote[]     @relation("RelatedNoteTo")
+  tags               NoteTag[]
+
+  @@index([contentFingerprint])
+  @@index([folderName])
+  @@index([importedAt])
+  @@index([lastSeenAt])
+  @@index([workspaceId])
+  @@index([navigationNodeId])
+  @@index([entityId])
+  @@index([parentNoteId])
+  @@index([isPinned])
+  @@index([sortOrder])
+  @@index([sourceChecksum])
+  @@index([status])
+  @@index([title])
+  @@index([titleFingerprint])
+  @@index([noteType])
+}
+
+model Relationship {
+  id                 String           @id @default(cuid())
+  workspaceId        String
+  workspace          Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  entityAId          String
+  entityBId          String
+  relationshipTypeId String
+  relationshipType   RelationshipType @relation(fields: [relationshipTypeId], references: [id], onDelete: Restrict)
+  type               String
+  description        String?          @db.Text
+  createdAt          DateTime         @default(now())
+
+  @@index([workspaceId])
+  @@index([entityAId])
+  @@index([entityBId])
+  @@index([relationshipTypeId])
+  @@index([type])
+  @@unique([workspaceId, entityAId, entityBId])
+}
+
+model RelationshipType {
+  id            String         @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  name          String
+  isSystem      Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  relationships Relationship[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@index([name])
+  @@index([isSystem])
+}
+
+model MetadataOverride {
+  id           String      @id @default(cuid())
+  noteId       String      @unique
+  displayTitle String?
+  summary      String?     @db.Text
+  status       NoteStatus?
+  priority     Int?
+  entityType   EntityKind?
+  notes        String?     @db.Text
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  note         Note        @relation(fields: [noteId], references: [id], onDelete: Cascade)
+}
+
+model Tag {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  name        String
+  description String?   @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  notes       NoteTag[]
+
+  @@index([name])
+}
+
+model NoteTag {
+  id        String         @id @default(cuid())
+  noteId    String
+  tagId     String
+  source    MetadataSource @default(IMPORTED)
+  createdAt DateTime       @default(now())
+  note      Note           @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  tag       Tag            @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, tagId])
+  @@index([tagId])
+  @@index([source])
+}
+
+model Category {
+  id          String         @id @default(cuid())
+  slug        String         @unique
+  name        String
+  description String?        @db.Text
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  notes       NoteCategory[]
+
+  @@index([name])
+}
+
+model NoteCategory {
+  id         String         @id @default(cuid())
+  noteId     String
+  categoryId String
+  source     MetadataSource @default(IMPORTED)
+  createdAt  DateTime       @default(now())
+  category   Category       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  note       Note           @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, categoryId])
+  @@index([categoryId])
+  @@index([source])
+}
+
+model Attachment {
+  id           String   @id @default(cuid())
+  noteId       String
+  sourcePath   String
+  resolvedPath String?
+  fileName     String
+  mimeType     String?
+  sizeBytes    Int?
+  checksum     String?
+  kind         String
+  createdAt    DateTime @default(now())
+  note         Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, sourcePath])
+  @@index([fileName])
+  @@index([kind])
+}
+
+model Link {
+  id           String   @id @default(cuid())
+  noteId       String
+  targetNoteId String?
+  url          String
+  label        String?
+  kind         LinkKind @default(URL)
+  createdAt    DateTime @default(now())
+  note         Note     @relation("NoteOutboundLinks", fields: [noteId], references: [id], onDelete: Cascade)
+  targetNote   Note?    @relation("NoteInboundLinks", fields: [targetNoteId], references: [id], onDelete: SetNull)
+
+  @@index([kind])
+  @@index([targetNoteId])
+  @@index([url])
+}
+
+model Entity {
+  id             String       @id @default(cuid())
+  workspaceId    String       @default("default-ascu")
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  slug           String
+  name           String
+  type           String       @default("other")
+  aliases        String[]     @default([])
+  kind           EntityKind   @default(OTHER)
+  description    String?      @db.Text
+  canonicalTable String?
+  canonicalId    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  notes          NoteEntity[]
+  primaryNotes   Note[]
+
+  @@unique([slug, kind])
+  @@unique([workspaceId, slug, kind])
+  @@index([workspaceId])
+  @@index([name])
+  @@index([type])
+  @@index([kind])
+}
+
+model NoteEntity {
+  id         String         @id @default(cuid())
+  noteId     String
+  entityId   String
+  confidence Float          @default(0.5)
+  source     MetadataSource @default(INFERRED)
+  evidence   String?
+  createdAt  DateTime       @default(now())
+  entity     Entity         @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  note       Note           @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, entityId])
+  @@index([entityId])
+  @@index([source])
+}
+
+model RelatedNote {
+  id           String            @id @default(cuid())
+  fromNoteId   String
+  toNoteId     String
+  relationType String
+  source       RelatedNoteSource @default(MANUAL)
+  confidence   Float             @default(1)
+  reason       String?
+  createdAt    DateTime          @default(now())
+  fromNote     Note              @relation("RelatedNoteFrom", fields: [fromNoteId], references: [id], onDelete: Cascade)
+  toNote       Note              @relation("RelatedNoteTo", fields: [toNoteId], references: [id], onDelete: Cascade)
+
+  @@unique([fromNoteId, toNoteId, relationType])
+  @@index([source])
+  @@index([toNoteId])
+}
+
+model ImportRun {
+  id                   String            @id @default(cuid())
+  sourceCollectionId   String?
+  importDirectory      String
+  startedAt            DateTime          @default(now())
+  completedAt          DateTime?
+  durationMs           Int?
+  filesDiscovered      Int               @default(0)
+  importedCount        Int               @default(0)
+  updatedCount         Int               @default(0)
+  skippedCount         Int               @default(0)
+  erroredCount         Int               @default(0)
+  warningCount         Int               @default(0)
+  duplicateReviewCount Int               @default(0)
+  status               String            @default("RUNNING")
+  summary              String?           @db.Text
+  errors               ImportError[]
+  noteEvents           NoteImportEvent[]
+  parseWarnings        ParseWarning[]
+  reviewItems          ReviewItem[]
+  sourceCollection     SourceCollection? @relation(fields: [sourceCollectionId], references: [id], onDelete: SetNull)
+
+  @@index([startedAt])
+  @@index([status])
+}
+
+model NoteImportEvent {
+  id          String           @id @default(cuid())
+  noteId      String
+  importRunId String
+  status      ImportFileStatus
+  sourcePath  String
+  checksum    String?
+  message     String?          @db.Text
+  createdAt   DateTime         @default(now())
+  importRun   ImportRun        @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+  note        Note             @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, importRunId])
+  @@index([status])
+}
+
+model ImportError {
+  id          String    @id @default(cuid())
+  importRunId String
+  sourcePath  String
+  message     String    @db.Text
+  stack       String?   @db.Text
+  createdAt   DateTime  @default(now())
+  importRun   ImportRun @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+
+  @@index([sourcePath])
+}
+
+model ParseWarning {
+  id          String     @id @default(cuid())
+  noteId      String?
+  importRunId String?
+  sourcePath  String
+  code        String
+  message     String     @db.Text
+  severity    String     @default("warning")
+  createdAt   DateTime   @default(now())
+  importRun   ImportRun? @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+  note        Note?      @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([code])
+  @@index([noteId])
+  @@index([severity])
+}
+
+model ReviewItem {
+  id              String         @id @default(cuid())
+  type            ReviewItemType
+  status          ReviewStatus   @default(OPEN)
+  noteId          String?
+  candidateNoteId String?
+  importRunId     String?
+  sourcePath      String?
+  title           String
+  detail          String         @db.Text
+  confidence      Float?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  resolvedAt      DateTime?
+  candidateNote   Note?          @relation("CandidateReviewNote", fields: [candidateNoteId], references: [id], onDelete: SetNull)
+  importRun       ImportRun?     @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+  note            Note?          @relation("PrimaryReviewNote", fields: [noteId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([type])
+}
+
+model SavedSearch {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  queryJson   Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+}
+
+model Character {
+  id                String            @id @default(cuid())
+  slug              String            @unique
+  name              String
+  alias             String
+  description       String
+  biography         String
+  firstAppearance   String
+  alignment         Alignment         @default(NEUTRAL)
+  portraitUrl       String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  homeCityId        String?
+  homeCity          City?             @relation("HomeCityCharacters", fields: [homeCityId], references: [id], onDelete: SetNull)
+  powers            CharacterPower[]
+  affiliations      CharacterFaction[]
+  storyArcs         CharacterStoryArc[]
+  relationshipsFrom CharacterRelation[] @relation("CharacterRelationFrom")
+  relationshipsTo   CharacterRelation[] @relation("CharacterRelationTo")
+
+  @@index([name])
+  @@index([alias])
+  @@index([homeCityId])
+}
+
+model CharacterRelation {
+  id        String    @id @default(cuid())
+  fromId    String
+  toId      String
+  relation  String
+  from      Character @relation("CharacterRelationFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to        Character @relation("CharacterRelationTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@unique([fromId, toId, relation])
+  @@index([toId])
+}
+
+model City {
+  id          String              @id @default(cuid())
+  slug        String              @unique
+  name        String
+  description String
+  region      String
+  imageUrl    String?
+  characters  Character[]         @relation("HomeCityCharacters")
+  factions    FactionLocation[]
+  events      TimelineEvent[]
+
+  @@index([name])
+}
+
+model Faction {
+  id          String              @id @default(cuid())
+  slug        String              @unique
+  name        String
+  description String
+  ideology    String
+  emblemUrl   String?
+  members     CharacterFaction[]
+  locations   FactionLocation[]
+  arcs        FactionStoryArc[]
+
+  @@index([name])
+}
+
+model FactionLocation {
+  id        String  @id @default(cuid())
+  factionId String
+  cityId    String
+  role      String
+  faction   Faction @relation(fields: [factionId], references: [id], onDelete: Cascade)
+  city      City    @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  @@unique([factionId, cityId])
+  @@index([cityId])
+}
+
+model PowerSystem {
+  id          String           @id @default(cuid())
+  slug        String           @unique
+  name        String
+  description String
+  source      String
+  limitations String
+  characters  CharacterPower[]
+
+  @@index([name])
+}
+
+model CharacterPower {
+  id          String      @id @default(cuid())
+  characterId String
+  powerId     String
+  mastery     String
+  notes       String?
+  character   Character   @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  power       PowerSystem @relation(fields: [powerId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, powerId])
+  @@index([powerId])
+}
+
+model CharacterFaction {
+  id          String    @id @default(cuid())
+  characterId String
+  factionId   String
+  role        String
+  status      String
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  faction     Faction   @relation(fields: [factionId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, factionId])
+  @@index([factionId])
+}
+
+model StoryArc {
+  id          String              @id @default(cuid())
+  slug        String              @unique
+  title       String
+  summary     String
+  issueRange  String
+  order       Int
+  coverUrl    String?
+  characters  CharacterStoryArc[]
+  factions    FactionStoryArc[]
+  events      TimelineEvent[]
+
+  @@index([title])
+  @@index([order])
+}
+
+model CharacterStoryArc {
+  id          String    @id @default(cuid())
+  characterId String
+  storyArcId  String
+  role        String
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  storyArc    StoryArc  @relation(fields: [storyArcId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, storyArcId])
+  @@index([storyArcId])
+}
+
+model FactionStoryArc {
+  id         String   @id @default(cuid())
+  factionId  String
+  storyArcId String
+  role       String
+  faction    Faction  @relation(fields: [factionId], references: [id], onDelete: Cascade)
+  storyArc   StoryArc @relation(fields: [storyArcId], references: [id], onDelete: Cascade)
+
+  @@unique([factionId, storyArcId])
+  @@index([storyArcId])
+}
+
+model TimelineEvent {
+  id          String     @id @default(cuid())
+  slug        String     @unique
+  title       String
+  description String
+  era         String
+  year        Int
+  month       Int?
+  scale       EventScale @default(CITY)
+  storyArcId  String?
+  cityId      String?
+  storyArc    StoryArc?  @relation(fields: [storyArcId], references: [id], onDelete: SetNull)
+  city        City?      @relation(fields: [cityId], references: [id], onDelete: SetNull)
+
+  @@index([year, month])
+  @@index([storyArcId])
+  @@index([cityId])
+}
+
+model NewsPost {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  excerpt     String
+  body        String
+  publishedAt DateTime @default(now())
+  isPublished Boolean  @default(false)
+
+  @@index([publishedAt])
+}

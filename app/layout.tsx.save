@@ -1,0 +1,36 @@
+import './globals.css'
+import NavigationSidebar from '../components/NavigationSidebar'
+
+export const metadata = {
+  title: 'ASCU Database',
+  description: 'Your personal ASCU universe system',
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body>
+        <div style={{ display: 'flex', height: '100vh' }}>
+          
+          {/* Sidebar */}
+          <div style={{ width: '280px', borderRight: '1px solid #333' }}>
+            <NavigationSidebar />
+          </div>
+
+          {/* Main Content */}
+          <div style={{ flex: 1 }}>
+            {children}
+          </div>
+
+        </div>
+      </body>
+    </html>
+  )
+}
+npm run dev
+
+
