@@ -7,7 +7,7 @@ export async function getContentManagerNotes() {
 
   const workspaceId = await getActiveWorkspaceId();
   return prisma.note.findMany({
-    where: { workspaceId },
+    where: { workspaceId, deletedAt: null },
     orderBy: [{ updatedAt: "desc" }, { title: "asc" }],
     include: {
       metadataOverride: true,

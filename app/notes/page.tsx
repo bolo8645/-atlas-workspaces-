@@ -12,7 +12,26 @@ type WorkspaceNote = Awaited<ReturnType<typeof getNotesWorkspaceData>>["notes"][
 
 export default async function NotesPage({ searchParams }: NotesPageProps) {
   const params = await searchParams;
-  const [data, navigationOptions, entityIndex, relationshipTypes] = await Promise.all([getNotesWorkspaceData(params), getNavigationNodeOptions(), getEntityIndexForActiveWorkspace(), getRelationshipTypesForActiveWorkspace()]);
+  let data: Awaited<ReturnType<typeof getNotesWorkspaceData>>;
+  let navigationOptions: Awaited<ReturnType<typeof getNavigationNodeOptions>>;
+  let entityIndex: Awaited<ReturnType<typeof getEntityIndexForActiveWorkspace>>;
+  let relationshipTypes: Awaited<ReturnType<typeof getRelationshipTypesForActiveWorkspace>>;
+
+  try {
+    [data, navigationOptions, entityIndex, relationshipTypes] = await Promise.all([
+      getNotesWorkspaceData(params),
+      getNavigationNodeOptions(),
+      getEntityIndexForActiveWorkspace(),
+      getRelationshipTypesForActiveWorkspace()
+    ]);
+  } catch (error) {
+    console.error("Failed to load notes workspace.", error);
+    data = emptyWorkspaceData(params);
+    navigationOptions = [];
+    entityIndex = [];
+    relationshipTypes = [];
+  }
+
   const navigationPathById = new Map(navigationOptions.map((option) => [option.id, option.fullPath]));
   const interconnectionsByEntityId = data.interconnectionsByEntityId ?? {};
   const createParentId = data.nodeId && data.nodeId !== "unassigned" && navigationPathById.has(data.nodeId) ? data.nodeId : null;
@@ -44,6 +63,10 @@ function toListItem(note: WorkspaceNote, navigationPathById: Map<string, string>
     navigationLabel: navigationLabel(note, navigationPathById),
     sortOrder: note.sortOrder,
     isPinned: note.isPinned,
+    manualTags: note.tags.filter((item) => item.source === "MANUAL").map((item) => item.tag.name),
+    isLocked: note.isLocked,
+    lockedAt: note.lockedAt?.toISOString() ?? null,
+    lockedBy: note.lockedBy ?? null,
     noteType: note.noteType || "draft",
     entity,
     interconnections: entity ? interconnectionsByEntityId[entity.id] ?? [] : []
@@ -61,6 +84,10 @@ function toSelectedNote(note: WorkspaceNote, navigationPathById: Map<string, str
     navigationLabel: navigationLabel(note, navigationPathById),
     sortOrder: note.sortOrder,
     isPinned: note.isPinned,
+    manualTags: note.tags.filter((item) => item.source === "MANUAL").map((item) => item.tag.name),
+    isLocked: note.isLocked,
+    lockedAt: note.lockedAt?.toISOString() ?? null,
+    lockedBy: note.lockedBy ?? null,
     noteType: note.noteType || "draft",
     entity,
     interconnections: entity ? interconnectionsByEntityId[entity.id] ?? [] : []
@@ -98,4 +125,18 @@ function dedupeEntityOptions(entityIndex: Awaited<ReturnType<typeof getEntityInd
     if (!options.has(entity.id)) options.set(entity.id, { id: entity.id, name: entity.title, type: entity.type, noteId: null });
   }
   return [...options.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function emptyWorkspaceData(searchParams: Record<string, string | string[] | undefined>): Awaited<ReturnType<typeof getNotesWorkspaceData>> {
+  const nodeParam = searchParams.node;
+  const noteParam = searchParams.note;
+
+  return {
+    nodeId: typeof nodeParam === "string" ? nodeParam : Array.isArray(nodeParam) ? nodeParam[0] : undefined,
+    selectedNoteId: typeof noteParam === "string" ? noteParam : Array.isArray(noteParam) ? noteParam[0] : undefined,
+    notes: [],
+    searchNotes: [],
+    selectedNote: null,
+    interconnectionsByEntityId: {}
+  };
 }

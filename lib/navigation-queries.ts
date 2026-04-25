@@ -1,7 +1,16 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { hasDatabaseUrl } from "@/lib/db-env";
 import { computeFullNavigationPath, type NavigationPathNode } from "@/lib/navigation-utils";
 import { getActiveWorkspaceId } from "@/lib/workspaces";
+
+const navigationNodeSupportsWorkspaceId = Prisma.dmmf.datamodel.models
+  .find((model) => model.name === "NavigationNode")
+  ?.fields.some((field) => field.name === "workspaceId") ?? false;
+
+const noteSupportsDeletedAt = Prisma.dmmf.datamodel.models
+  .find((model) => model.name === "Note")
+  ?.fields.some((field) => field.name === "deletedAt") ?? false;
 
 type NavigationRecord = {
   id: string;
@@ -47,6 +56,10 @@ export type NavigationNodeOption = {
 
 export async function getNavigationTree(options: { visibleOnly?: boolean } = {}) {
   if (!hasDatabaseUrl) return [];
+  if (!navigationNodeSupportsWorkspaceId) {
+    console.warn("Navigation unavailable because the running Prisma client does not include NavigationNode.workspaceId. Regenerate Prisma Client and restart the dev server.");
+    return [];
+  }
 
   const records = await getNavigationRecords();
   const tree = buildNavigationTree(records);
@@ -60,15 +73,19 @@ export async function getNavigationNodeOptions() {
 
 export async function getNavigationNodeAndDescendantIds(nodeId: string) {
   if (!hasDatabaseUrl) return [];
+  if (!navigationNodeSupportsWorkspaceId) return [];
 
-  const workspaceId = await getActiveWorkspaceId();
-  const records = await prisma.navigationNode.findMany({
+  const workspaceId = await resolveWorkspaceId();
+  if (!workspaceId) return [];
+
+  const records = await safeNavigationNodeLinks({
     where: { workspaceId },
     select: {
       id: true,
       parentId: true
     }
   });
+  if (!records) return [];
   const idsByParent = new Map<string | null, string[]>();
   const nodeIds = new Set(records.map((record) => record.id));
 
@@ -95,20 +112,25 @@ export async function getNavigationNodeAndDescendantIds(nodeId: string) {
 export async function getUnassignedNoteCount() {
   if (!hasDatabaseUrl) return 0;
 
-  const workspaceId = await getActiveWorkspaceId();
+  const workspaceId = await resolveWorkspaceId();
+  if (!workspaceId) return 0;
   return prisma.note.count({
     where: {
       workspaceId,
-      navigationNodeId: null
+      navigationNodeId: null,
+      ...(noteSupportsDeletedAt ? { deletedAt: null } : {})
     }
   });
 }
 
 export async function getFullNavigationPath(nodeId: string) {
   if (!hasDatabaseUrl) return undefined;
+  if (!navigationNodeSupportsWorkspaceId) return undefined;
 
-  const workspaceId = await getActiveWorkspaceId();
-  const records = await prisma.navigationNode.findMany({
+  const workspaceId = await resolveWorkspaceId();
+  if (!workspaceId) return undefined;
+
+  const records = await safeNavigationNodePathNodes({
     where: { workspaceId },
     select: {
       id: true,
@@ -116,6 +138,7 @@ export async function getFullNavigationPath(nodeId: string) {
       slug: true
     }
   });
+  if (!records) return undefined;
   const nodesById = new Map<string, NavigationPathNode>(records.map((record) => [record.id, record]));
   const node = nodesById.get(nodeId);
   return node ? computeFullNavigationPath(node, nodesById) : undefined;
@@ -124,14 +147,16 @@ export async function getFullNavigationPath(nodeId: string) {
 export async function getNotesByNavigationNode(nodeId: string, options: { includeDescendants?: boolean } = {}) {
   if (!hasDatabaseUrl) return [];
 
-  const workspaceId = await getActiveWorkspaceId();
+  const workspaceId = await resolveWorkspaceId();
+  if (!workspaceId) return [];
   const nodeIds = options.includeDescendants === true ? await getNavigationNodeAndDescendantIds(nodeId) : [nodeId];
   if (nodeIds.length === 0) return [];
 
   return prisma.note.findMany({
     where: {
       workspaceId,
-      navigationNodeId: { in: nodeIds }
+      navigationNodeId: { in: nodeIds },
+      ...(noteSupportsDeletedAt ? { deletedAt: null } : {})
     },
     orderBy: [{ updatedAt: "desc" }],
     include: {
@@ -144,19 +169,69 @@ export async function getNotesByNavigationNode(nodeId: string, options: { includ
 
 async function getNavigationRecords() {
   if (!hasDatabaseUrl) return [];
+  if (!navigationNodeSupportsWorkspaceId) return [];
 
-  const workspaceId = await getActiveWorkspaceId();
-  return prisma.navigationNode.findMany({
-    where: { workspaceId },
-    orderBy: [{ sortOrder: "asc" }, { title: "asc" }],
-    include: {
-      _count: {
-        select: {
-          notes: true
+  const workspaceId = await resolveWorkspaceId();
+  if (!workspaceId) return [];
+
+  try {
+    return await prisma.navigationNode.findMany({
+      where: { workspaceId },
+      orderBy: [{ sortOrder: "asc" }, { title: "asc" }],
+      include: {
+        _count: {
+          select: {
+            notes: {
+              ...(noteSupportsDeletedAt ? { where: { deletedAt: null } } : {})
+            }
+          }
         }
       }
+    });
+  } catch (error) {
+    if (isNavigationQueryValidationError(error)) {
+      console.warn("Navigation query is out of sync with the current Prisma client/runtime. Regenerate Prisma Client and restart the dev server.");
+      return [];
     }
-  });
+    throw error;
+  }
+}
+
+async function resolveWorkspaceId() {
+  try {
+    return await getActiveWorkspaceId();
+  } catch (error) {
+    console.warn("Unable to resolve active workspace for navigation.");
+    return null;
+  }
+}
+
+async function safeNavigationNodeLinks(args: Parameters<typeof prisma.navigationNode.findMany>[0]) {
+  try {
+    return await prisma.navigationNode.findMany(args);
+  } catch (error) {
+    if (isNavigationQueryValidationError(error)) {
+      console.warn("Navigation query is out of sync with the current Prisma client/runtime. Regenerate Prisma Client and restart the dev server.");
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function safeNavigationNodePathNodes(args: Parameters<typeof prisma.navigationNode.findMany>[0]) {
+  try {
+    return await prisma.navigationNode.findMany(args);
+  } catch (error) {
+    if (isNavigationQueryValidationError(error)) {
+      console.warn("Navigation query is out of sync with the current Prisma client/runtime. Regenerate Prisma Client and restart the dev server.");
+      return null;
+    }
+    throw error;
+  }
+}
+
+function isNavigationQueryValidationError(error: unknown) {
+  return error instanceof Prisma.PrismaClientValidationError;
 }
 
 function buildNavigationTree(records: NavigationRecord[]) {

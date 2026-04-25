@@ -268,7 +268,7 @@ export function RichTextEditor({ value, onChange, findQuery = "", currentNoteId 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <EditorContent editor={editor} className="ascu-rich-editor min-h-0 flex-1 overflow-auto px-5 py-5 text-base leading-8 text-stone-200" />
+      <EditorContent editor={editor} className="ascu-rich-editor min-h-0 flex-1 px-5 py-5 text-base leading-8 text-stone-200" />
     </div>
   );
 }

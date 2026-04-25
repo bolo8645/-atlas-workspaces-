@@ -1,5 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { EntityKind, MetadataSource, NoteStatus, RelatedNoteSource, ReviewStatus, type Prisma, type PrismaClient } from "@prisma/client";
+import { requireCurrentUserId } from "@/lib/auth";
 import type { CanonicalEntitySummary } from "@/lib/entities";
 import { computeFullNavigationPath, normalizeNavigationSlug, type NavigationPathNode } from "@/lib/navigation-utils";
 import { prisma } from "@/lib/prisma";
@@ -58,6 +59,12 @@ export type EntityLinkInput = {
   entityId?: string | null;
 };
 
+export type NoteLockSummary = {
+  isLocked: boolean;
+  lockedAt: Date | null;
+  lockedBy: string | null;
+};
+
 export async function updateNoteMetadata(input: UpdateNoteMetadataInput) {
   const status = coerceEnum(NoteStatus, input.status);
   const entityType = coerceEnum(EntityKind, input.entityType);
@@ -66,7 +73,7 @@ export async function updateNoteMetadata(input: UpdateNoteMetadataInput) {
 
   await prisma.$transaction(async (tx) => {
     const note = await tx.note.findUnique({
-      where: { id: input.noteId, workspaceId },
+      where: { id: input.noteId, workspaceId, deletedAt: null },
       select: { id: true }
     });
     if (!note) throw new Error("Note not found.");
@@ -116,6 +123,7 @@ export async function createManualRelationship(input: { noteId: string; targetNo
   const notes = await prisma.note.findMany({
     where: {
       workspaceId,
+      deletedAt: null,
       id: { in: [input.noteId, input.targetNoteId] }
     },
     select: { id: true }
@@ -162,7 +170,7 @@ export async function updateNoteNavigationAssignment(input: { noteId: string } &
     const target = await resolveNavigationAssignmentTarget(tx, workspaceId, input);
 
     await tx.note.update({
-      where: { id: input.noteId, workspaceId },
+      where: { id: input.noteId, workspaceId, deletedAt: null },
       data: { navigationNodeId: target?.id ?? null }
     });
 
@@ -179,7 +187,7 @@ export async function bulkUpdateNoteNavigationAssignment(input: { noteIds: strin
     const target = await resolveNavigationAssignmentTarget(tx, workspaceId, input);
 
     await tx.note.updateMany({
-      where: { workspaceId, id: { in: noteIds } },
+      where: { workspaceId, id: { in: noteIds }, deletedAt: null },
       data: { navigationNodeId: target?.id ?? null }
     });
   });
@@ -216,6 +224,7 @@ export async function createEditorNote(input: { navigationNodeId?: string | null
       parseQuality: 100,
       curatedSummary: content,
       noteType: noteType ?? undefined,
+      isLocked: false,
       metadataOverride: {
         create: {
           displayTitle: title,
@@ -246,7 +255,7 @@ export async function updateEditorNote(input: UpdateEditorNoteInput): Promise<Ed
 
   return prisma.$transaction(async (tx) => {
     const existingNote = await tx.note.findUnique({
-      where: { id: input.noteId, workspaceId },
+      where: { id: input.noteId, workspaceId, deletedAt: null },
       select: {
         entityId: true,
         entity: {
@@ -275,7 +284,7 @@ export async function updateEditorNote(input: UpdateEditorNoteInput): Promise<Ed
     });
 
     await tx.note.update({
-      where: { id: input.noteId, workspaceId },
+      where: { id: input.noteId, workspaceId, deletedAt: null },
       data: {
         noteType: clean(input.noteType) ?? undefined,
         curatedSummary: hasContent ? content : undefined,
@@ -311,7 +320,7 @@ export async function updateNoteEntityLink(input: EntityLinkInput): Promise<Edit
     });
     if (!entity || entity.workspaceId !== workspaceId) throw new Error("Entity not found.");
     await prisma.note.update({
-      where: { id: input.noteId, workspaceId },
+      where: { id: input.noteId, workspaceId, deletedAt: null },
       data: { entityId }
     });
     return {
@@ -323,7 +332,7 @@ export async function updateNoteEntityLink(input: EntityLinkInput): Promise<Edit
   }
 
   await prisma.note.update({
-    where: { id: input.noteId, workspaceId },
+    where: { id: input.noteId, workspaceId, deletedAt: null },
     data: { entityId: null }
   });
   return null;
@@ -331,17 +340,195 @@ export async function updateNoteEntityLink(input: EntityLinkInput): Promise<Edit
 
 export async function deleteEditorNote(noteId: string) {
   const workspaceId = await getActiveWorkspaceId();
-  await prisma.note.delete({
-    where: { id: noteId, workspaceId }
+  await prisma.note.update({
+    where: { id: noteId, workspaceId, deletedAt: null },
+    data: {
+      deletedAt: new Date(),
+      isPinned: false
+    }
   });
 }
 
 export async function toggleNotePinned(input: { noteId: string; isPinned: boolean }) {
   const workspaceId = await getActiveWorkspaceId();
   await prisma.note.update({
-    where: { id: input.noteId, workspaceId },
+    where: { id: input.noteId, workspaceId, deletedAt: null },
     data: { isPinned: input.isPinned }
   });
+}
+
+export async function updateNoteTags(input: { noteId: string; tags: string[] }) {
+  const workspaceId = await getActiveWorkspaceId();
+  await prisma.$transaction(async (tx) => {
+    const note = await tx.note.findUnique({
+      where: { id: input.noteId, workspaceId, deletedAt: null },
+      select: { id: true }
+    });
+    if (!note) throw new Error("Note not found.");
+    await syncManualTags(tx, input.noteId, input.tags);
+  });
+}
+
+export async function duplicateEditorNote(noteId: string) {
+  const workspaceId = await getActiveWorkspaceId();
+
+  return prisma.$transaction(async (tx) => {
+    const source = await tx.note.findUnique({
+      where: { id: noteId, workspaceId, deletedAt: null },
+      include: {
+        metadataOverride: true,
+        tags: { include: { tag: true }, orderBy: { tag: { name: "asc" } } }
+      }
+    });
+    if (!source) throw new Error("Note not found.");
+
+    const id = randomUUID();
+    const copyTitle = appendCopySuffix(source.title);
+    const copyContent = source.curatedSummary?.trim() ? source.curatedSummary : source.plainTextContent;
+
+    const created = await tx.note.create({
+      data: {
+        id,
+        workspaceId,
+        navigationNodeId: source.navigationNodeId,
+        entityId: source.entityId,
+        sortOrder: await nextNoteSortOrder(tx, workspaceId, source.navigationNodeId),
+        sourceIdentity: `manual:${id}`,
+        sourcePath: `manual/${id}.md`,
+        sourceFileName: copyTitle,
+        sourceExtension: source.sourceExtension || ".md",
+        sourceChecksum: hashText(`manual:${id}`),
+        contentFingerprint: makeContentFingerprint(copyContent),
+        title: copyTitle,
+        titleFingerprint: makeTitleFingerprint(`${copyTitle}-${id}`),
+        noteType: source.noteType,
+        aliases: source.aliases,
+        importedContent: source.importedContent,
+        plainTextContent: copyContent,
+        excerpt: excerpt(copyContent || copyTitle),
+        createdDate: source.createdDate,
+        updatedDate: new Date(),
+        importedAt: new Date(),
+        lastSeenAt: new Date(),
+        folderName: source.folderName,
+        notebookName: source.notebookName,
+        status: source.status,
+        isPinned: false,
+        isLocked: false,
+        priority: source.priority,
+        entityType: source.entityType,
+        parseQuality: source.parseQuality,
+        metadataNotes: source.metadataNotes,
+        curatedSummary: copyContent,
+        publicVisibility: source.publicVisibility,
+        timelineStartDate: source.timelineStartDate,
+        timelineEndDate: source.timelineEndDate,
+        metadataOverride: {
+          create: {
+            displayTitle: copyTitle,
+            summary: copyContent,
+            status: source.metadataOverride?.status ?? source.status,
+            priority: source.metadataOverride?.priority ?? source.priority,
+            entityType: source.metadataOverride?.entityType ?? source.entityType,
+            notes: source.metadataOverride?.notes
+          }
+        }
+      },
+      select: {
+        id: true,
+        title: true,
+        updatedAt: true,
+        navigationNodeId: true,
+        noteType: true,
+        isPinned: true,
+        isLocked: true,
+        lockedAt: true,
+        lockedBy: true,
+        entity: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            aliases: true
+          }
+        }
+      }
+    });
+
+    const manualTags = source.tags.filter((item) => item.source === MetadataSource.MANUAL).map((item) => item.tag.name);
+    if (manualTags.length > 0) await syncManualTags(tx, created.id, manualTags);
+
+    return created;
+  });
+}
+
+export async function lockNote(input: { noteId: string; passcode: string }): Promise<NoteLockSummary> {
+  const workspaceId = await getActiveWorkspaceId();
+  const lockedBy = await requireCurrentUserId();
+  const passcode = clean(input.passcode);
+  if (!passcode) throw new Error("Enter a passcode.");
+
+  const note = await prisma.note.update({
+    where: { id: input.noteId, workspaceId, deletedAt: null },
+    data: {
+      isLocked: true,
+      lockPasscodeHash: hashPasscode(passcode),
+      lockedAt: new Date(),
+      lockedBy
+    },
+    select: {
+      isLocked: true,
+      lockedAt: true,
+      lockedBy: true
+    }
+  });
+
+  return note;
+}
+
+export async function unlockNote(input: { noteId: string; passcode: string }): Promise<NoteLockSummary> {
+  const workspaceId = await getActiveWorkspaceId();
+  const note = await prisma.note.findUnique({
+    where: { id: input.noteId, workspaceId, deletedAt: null },
+    select: {
+      id: true,
+      isLocked: true,
+      lockPasscodeHash: true
+    }
+  });
+  if (!note) throw new Error("Note not found.");
+  if (!note.isLocked || !note.lockPasscodeHash) throw new Error("Note is not locked.");
+  if (!verifyPasscode(input.passcode, note.lockPasscodeHash)) throw new Error("Incorrect passcode.");
+
+  return prisma.note.update({
+    where: { id: input.noteId, workspaceId, deletedAt: null },
+    data: {
+      isLocked: false,
+      lockPasscodeHash: null,
+      lockedAt: null,
+      lockedBy: null
+    },
+    select: {
+      isLocked: true,
+      lockedAt: true,
+      lockedBy: true
+    }
+  });
+}
+
+export async function verifyNotePasscode(input: { noteId: string; passcode: string }) {
+  const workspaceId = await getActiveWorkspaceId();
+  const note = await prisma.note.findUnique({
+    where: { id: input.noteId, workspaceId, deletedAt: null },
+    select: {
+      id: true,
+      isLocked: true,
+      lockPasscodeHash: true
+    }
+  });
+  if (!note) throw new Error("Note not found.");
+  if (!note.isLocked || !note.lockPasscodeHash) return true;
+  return verifyPasscode(input.passcode, note.lockPasscodeHash);
 }
 
 export async function reorderNotes(input: ReorderNotesInput) {
@@ -354,7 +541,7 @@ export async function reorderNotes(input: ReorderNotesInput) {
   await prisma.$transaction(
     noteIds.map((id, index) =>
       prisma.note.update({
-        where: { id, workspaceId },
+        where: { id, workspaceId, deletedAt: null },
         data: {
           navigationNodeId,
           sortOrder: (index + 1) * 10
@@ -371,7 +558,7 @@ export async function moveNoteToNavigationNode(input: MoveNoteInput) {
   const sortOrder = await nextNoteSortOrder(prisma, workspaceId, navigationNodeId);
 
   await prisma.note.update({
-    where: { id: input.noteId, workspaceId },
+    where: { id: input.noteId, workspaceId, deletedAt: null },
     data: {
       navigationNodeId,
       sortOrder
@@ -396,7 +583,7 @@ async function resolveNavigationAssignmentTarget(db: DbClient, workspaceId: stri
 
 async function nextNoteSortOrder(db: DbClient, workspaceId: string, navigationNodeId: string | null) {
   const note = await db.note.findFirst({
-    where: { workspaceId, navigationNodeId },
+    where: { workspaceId, navigationNodeId, deletedAt: null },
     orderBy: { sortOrder: "desc" },
     select: { sortOrder: true }
   });
@@ -523,6 +710,24 @@ async function assertNavigationNodeExists(db: DbClient, workspaceId: string, nav
 function clean(value: string | undefined | null) {
   const trimmed = value?.trim();
   return trimmed || undefined;
+}
+
+function appendCopySuffix(title: string) {
+  return title.endsWith("(Copy)") ? title : `${title} (Copy)`;
+}
+
+function hashPasscode(passcode: string) {
+  const salt = randomBytes(16).toString("hex");
+  const digest = scryptSync(passcode, salt, 64).toString("hex");
+  return `${salt}:${digest}`;
+}
+
+function verifyPasscode(passcode: string, storedHash: string) {
+  const [salt, digest] = storedHash.split(":");
+  if (!salt || !digest) return false;
+  const expected = Buffer.from(digest, "hex");
+  const actual = Buffer.from(scryptSync(passcode, salt, 64).toString("hex"), "hex");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 function coerceEnum<T extends Record<string, string>>(enumObject: T, value: string | undefined) {

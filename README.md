@@ -59,7 +59,8 @@ cp .env.example .env
 Required values:
 
 ```bash
-DATABASE_URL="postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabase.co:5432/postgres?schema=public&sslmode=require"
+DATABASE_URL="postgresql://postgres.[YOUR-PROJECT-REF]:[YOUR-PASSWORD]@[YOUR-POOLER-HOST]:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require"
+DIRECT_URL="postgresql://postgres.[YOUR-PROJECT-REF]:[YOUR-PASSWORD]@[YOUR-POOLER-HOST-OR-DB-HOST]:5432/postgres?sslmode=require"
 IMPORT_NOTES_DIR="./sample-imports"
 NEXT_PUBLIC_APP_NAME="Atlas Workspaces"
 NEXT_PUBLIC_SUPABASE_URL="https://[YOUR-PROJECT-REF].supabase.co"
@@ -146,21 +147,39 @@ Where to get them:
 Server-only values stay separate:
 
 - `DATABASE_URL` is server-only and should stay in `.env` or your deployment environment, not in browser code.
+- `DIRECT_URL` is server-only and should stay in `.env`, `.env.local`, or your deployment environment. Prisma CLI uses it for migrate/introspection work that should not go through the transaction pooler.
 
 Local login and signup depend on those two `NEXT_PUBLIC_` variables. After changing `.env.local`, restart the Next.js dev server so it reloads the environment variables.
 
 ## Deploying On Vercel
 
 1. Create a Supabase project.
-2. Use the Supabase Postgres connection string for `DATABASE_URL`.
+2. Configure Prisma database URLs for Supabase serverless usage:
+   - `DATABASE_URL`: Supabase transaction pooler on port `6543` with `pgbouncer=true&connection_limit=1`
+   - `DIRECT_URL`: Supabase session pooler or direct database connection on port `5432` for Prisma CLI commands
 3. Add these Vercel environment variables:
    - `DATABASE_URL`
+   - `DIRECT_URL`
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
    - `IMPORT_NOTES_DIR` if you need server-side imports in production
    - `ADMIN_IMPORT_SECRET` if you want to keep the import endpoint separately locked
 4. Configure Supabase Auth redirect URLs to include your deployed origin plus `/auth/confirm`.
-5. Deploy to Vercel. `postinstall` runs `prisma generate` automatically during install.
+5. Deploy to Vercel. The build flow runs:
+   - `prisma generate`
+   - `prisma migrate deploy`
+   - `next build`
+   This ensures production tables exist before the deployed app starts serving traffic.
+   If your Vercel project has a custom Build Command, point it at `npm run build` or `npm run vercel-build`. A plain `next build` will skip the migration step and leave tables like `Workspace` missing in production.
+
+Example Vercel values:
+
+```bash
+DATABASE_URL="postgresql://postgres.[YOUR-PROJECT-REF]:[YOUR-PASSWORD]@[YOUR-POOLER-HOST]:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require"
+DIRECT_URL="postgresql://postgres.[YOUR-PROJECT-REF]:[YOUR-PASSWORD]@[YOUR-POOLER-HOST-OR-DB-HOST]:5432/postgres?sslmode=require"
+```
+
+`DATABASE_URL` is the runtime connection Prisma Client uses on Vercel. `DIRECT_URL` is the non-transaction-pooled connection Prisma uses for migrations and other CLI operations. If `DIRECT_URL` is not set, the scripts fall back to `DATABASE_URL`, but production should set both explicitly.
 
 ## Import Flow
 

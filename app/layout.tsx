@@ -82,9 +82,9 @@ export default async function RootLayout({
 
   return (
     <html lang="en" data-scroll-behavior="smooth">
-      <body className="min-h-dvh overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+      <body className="h-dvh min-h-dvh overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
         <NotesDndProvider>
-          <div className="flex min-h-dvh flex-col overflow-hidden">
+          <div className="flex h-dvh min-h-dvh min-w-0 flex-col overflow-hidden">
             <header className="sticky top-0 z-50 shrink-0 border-b border-white/10 bg-black/[0.88] px-4 py-3 backdrop-blur-xl sm:px-5">
               <WorkspaceSelector workspaces={workspaces} activeWorkspaceId={activeWorkspace.id} />
             </header>

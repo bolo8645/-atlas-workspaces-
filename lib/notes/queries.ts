@@ -26,18 +26,18 @@ export async function getDashboardData() {
 
   const workspaceId = await getActiveWorkspaceId();
   const [totalNotes, recentImports, missingMetadata, notesWithWarnings, notesWithAttachments, orphanNotes, recentNotes, topTags, topCategories] = await Promise.all([
-    prisma.note.count({ where: { workspaceId } }),
+    prisma.note.count({ where: { workspaceId, deletedAt: null } }),
     prisma.importRun.findMany({
-      where: { noteEvents: { some: { note: { workspaceId } } } },
+      where: { noteEvents: { some: { note: { workspaceId, deletedAt: null } } } },
       take: 5,
       orderBy: { startedAt: "desc" }
     }),
-    prisma.note.count({ where: { workspaceId, AND: [missingMetadataWhere()] } }),
-    prisma.note.count({ where: { workspaceId, parseWarnings: { some: {} } } }),
-    prisma.note.count({ where: { workspaceId, attachments: { some: {} } } }),
-    prisma.note.count({ where: { workspaceId, relatedFrom: { none: {} }, relatedTo: { none: {} } } }),
+    prisma.note.count({ where: { workspaceId, deletedAt: null, AND: [missingMetadataWhere()] } }),
+    prisma.note.count({ where: { workspaceId, deletedAt: null, parseWarnings: { some: {} } } }),
+    prisma.note.count({ where: { workspaceId, deletedAt: null, attachments: { some: {} } } }),
+    prisma.note.count({ where: { workspaceId, deletedAt: null, relatedFrom: { none: {} }, relatedTo: { none: {} } } }),
     prisma.note.findMany({
-      where: { workspaceId },
+      where: { workspaceId, deletedAt: null },
       take: 6,
       orderBy: { updatedAt: "desc" },
       include: { metadataOverride: true, tags: { include: { tag: true }, take: 4 }, categories: { include: { category: true }, take: 2 } }
@@ -132,8 +132,8 @@ export async function getNoteDetail(id: string) {
   if (!hasDatabaseUrl) return null;
 
   const workspaceId = await getActiveWorkspaceId();
-  return prisma.note.findUnique({
-    where: { id, workspaceId },
+  return prisma.note.findFirst({
+    where: { id, workspaceId, deletedAt: null },
     include: {
       metadataOverride: true,
       navigationNode: true,
@@ -157,7 +157,7 @@ export async function getRelationshipTargets(noteId: string) {
 
   const workspaceId = await getActiveWorkspaceId();
   return prisma.note.findMany({
-    where: { workspaceId, id: { not: noteId } },
+    where: { workspaceId, id: { not: noteId }, deletedAt: null },
     orderBy: { updatedAt: "desc" },
     take: 100,
     select: { id: true, title: true, sourcePath: true, metadataOverride: true }
@@ -169,7 +169,7 @@ export async function getImportHistory() {
 
   const workspaceId = await getActiveWorkspaceId();
   return prisma.importRun.findMany({
-    where: { noteEvents: { some: { note: { workspaceId } } } },
+    where: { noteEvents: { some: { note: { workspaceId, deletedAt: null } } } },
     take: 50,
     orderBy: { startedAt: "desc" },
     include: {
@@ -203,7 +203,7 @@ export async function getAttachmentsPage() {
 
   const workspaceId = await getActiveWorkspaceId();
   return prisma.attachment.findMany({
-    where: { note: { workspaceId } },
+    where: { note: { workspaceId, deletedAt: null } },
     orderBy: [{ kind: "asc" }, { fileName: "asc" }],
     include: { note: { include: { metadataOverride: true } } },
     take: 300
@@ -215,7 +215,7 @@ export async function getReviewItems(status: ReviewStatus = ReviewStatus.OPEN) {
 
   const workspaceId = await getActiveWorkspaceId();
   return prisma.reviewItem.findMany({
-    where: { status, OR: [{ note: { workspaceId } }, { candidateNote: { workspaceId } }] },
+    where: { status, OR: [{ note: { workspaceId, deletedAt: null } }, { candidateNote: { workspaceId, deletedAt: null } }] },
     orderBy: { createdAt: "desc" },
     include: {
       note: { include: { metadataOverride: true } },
@@ -238,6 +238,7 @@ async function getFullTextNoteIds(searchParams: SearchParams) {
     SELECT id
     FROM "Note"
     WHERE "workspaceId" = ${workspaceId}
+      AND "deletedAt" IS NULL
       AND to_tsvector('english', coalesce("title", '') || ' ' || coalesce("plainTextContent", '') || ' ' || coalesce("excerpt", ''))
       @@ plainto_tsquery('english', ${query})
     ORDER BY ts_rank(
@@ -259,7 +260,7 @@ async function getNavigationFilter(searchParams: SearchParams): Promise<Navigati
 }
 
 function buildNotesWhere(searchParams: SearchParams, workspaceId: string, fullTextIds?: string[], navigationFilter?: NavigationFilter): Prisma.NoteWhereInput {
-  const conditions: Prisma.NoteWhereInput[] = [{ workspaceId }];
+  const conditions: Prisma.NoteWhereInput[] = [{ workspaceId, deletedAt: null }];
   const query = readParam(searchParams, "q");
   const scope = readParam(searchParams, "scope") || "all";
   const tag = readParam(searchParams, "tag");
@@ -327,7 +328,7 @@ async function getTopTags(take: number, workspaceId: string) {
 
   const groups = await prisma.noteTag.groupBy({
     by: ["tagId"],
-    where: { note: { workspaceId } },
+    where: { note: { workspaceId, deletedAt: null } },
     _count: { tagId: true },
     orderBy: { _count: { tagId: "desc" } },
     take
@@ -341,7 +342,7 @@ async function getTopCategories(take: number, workspaceId: string) {
 
   const groups = await prisma.noteCategory.groupBy({
     by: ["categoryId"],
-    where: { note: { workspaceId } },
+    where: { note: { workspaceId, deletedAt: null } },
     _count: { categoryId: true },
     orderBy: { _count: { categoryId: "desc" } },
     take

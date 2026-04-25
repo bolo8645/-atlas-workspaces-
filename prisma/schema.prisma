@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Alignment {
@@ -171,6 +172,11 @@ model Note {
   status             NoteStatus        @default(NEW)
   sortOrder          Int               @default(0)
   isPinned           Boolean           @default(false)
+  isLocked           Boolean           @default(false)
+  lockPasscodeHash   String?           @db.Text
+  lockedAt           DateTime?
+  lockedBy           String?
+  deletedAt          DateTime?
   priority           Int?
   entityType         EntityKind?
   parseQuality       Int               @default(100)
@@ -204,6 +210,8 @@ model Note {
   @@index([entityId])
   @@index([parentNoteId])
   @@index([isPinned])
+  @@index([isLocked])
+  @@index([deletedAt])
   @@index([sortOrder])
   @@index([sourceChecksum])
   @@index([status])

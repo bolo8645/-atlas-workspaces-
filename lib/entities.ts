@@ -77,7 +77,7 @@ export async function attachNoteToEntity(input: { noteId: string; entityId: stri
   const workspaceId = await getActiveWorkspaceId();
   const entity = await assertEntityInWorkspace(workspaceId, input.entityId);
   await prisma.note.update({
-    where: { id: input.noteId, workspaceId },
+    where: { id: input.noteId, workspaceId, deletedAt: null },
     data: { entityId: entity.id }
   });
   return entity;
@@ -87,7 +87,7 @@ export async function removeNoteEntityLink(noteId: string) {
   if (!hasDatabaseUrl) return null;
   const workspaceId = await getActiveWorkspaceId();
   await prisma.note.update({
-    where: { id: noteId, workspaceId },
+    where: { id: noteId, workspaceId, deletedAt: null },
     data: { entityId: null }
   });
   return null;
@@ -99,7 +99,7 @@ export async function linkTextSelectionToEntity(input: { noteId: string; entityI
   const entity = await assertEntityInWorkspace(workspaceId, input.entityId);
   const text = clean(input.text);
   if (!text) throw new Error("Select text before linking an entity.");
-  const note = await prisma.note.findUnique({ where: { id: input.noteId, workspaceId }, select: { id: true } });
+  const note = await prisma.note.findUnique({ where: { id: input.noteId, workspaceId, deletedAt: null }, select: { id: true } });
   if (!note) throw new Error("Note not found.");
   await prisma.noteEntity.upsert({
     where: {

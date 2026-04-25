@@ -3,14 +3,14 @@
 import type { DraggableAttributes, DraggableSyntheticListeners } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { CSSProperties, FormEvent as ReactFormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { CSSProperties, FormEvent as ReactFormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, TouchEvent as ReactTouchEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NoteNavigationAssignmentControl } from "@/components/NoteNavigationAssignmentControl";
 import { NOTES_DND_END_EVENT, type NotesDndEndDetail } from "@/components/NotesDndProvider";
 import { RichTextEditor, type EditorRelationshipSuggestion, type RichTextEditorActions } from "@/components/RichTextEditor";
 import { attachNoteEntityAction, createEntityAction, findEntityByNameAction, linkTextSelectionToEntityAction, mergeEntityAction, removeNoteEntityLinkAction, updateEntityAction } from "@/lib/entity-actions";
 import type { NavigationNodeOption } from "@/lib/navigation-queries";
-import { createEditorNoteAction, deleteEditorNoteAction, moveNoteToNavigationNodeAction, reorderNotesAction, toggleNotePinnedAction, updateEditorNoteAction } from "@/lib/notes/actions";
+import { createEditorNoteAction, deleteEditorNoteAction, duplicateEditorNoteAction, lockNoteAction, moveNoteToNavigationNodeAction, reorderNotesAction, toggleNotePinnedAction, unlockNoteAction, updateEditorNoteAction, updateNoteTagsAction, verifyNotePasscodeAction } from "@/lib/notes/actions";
 import { formatDateTime } from "@/lib/notes/display";
 import type { InterconnectedRelationship } from "@/lib/notes/workspace-queries";
 import { createRelationshipAction, createRelationshipTypeAction, deleteRelationshipAction, updateRelationshipAction } from "@/lib/relationship-actions";
@@ -45,6 +45,10 @@ export type WorkspaceNoteListItem = {
   navigationLabel: string;
   sortOrder: number;
   isPinned: boolean;
+  manualTags: string[];
+  isLocked: boolean;
+  lockedAt: string | null;
+  lockedBy: string | null;
   noteType: string;
   entity: LinkedEntitySummary;
   interconnections: InterconnectedRelationship[];
@@ -59,6 +63,10 @@ export type WorkspaceSelectedNote = {
   navigationLabel: string;
   sortOrder: number;
   isPinned: boolean;
+  manualTags: string[];
+  isLocked: boolean;
+  lockedAt: string | null;
+  lockedBy: string | null;
   noteType: string;
   entity: LinkedEntitySummary;
   interconnections: InterconnectedRelationship[];
@@ -91,6 +99,7 @@ const RIGHT_PANEL_WIDTH_KEY = "ascu.rightPanelWidth";
 const DEFAULT_RIGHT_PANEL_WIDTH = 240;
 const MIN_RIGHT_PANEL_WIDTH = 220;
 const MAX_RIGHT_PANEL_WIDTH = 260;
+const UNLOCKED_NOTES_SESSION_KEY = "atlas.unlockedNotes";
 const RIGHT_RAIL_WIDTH = 44;
 const RAIL_BUTTON_HEIGHT = 176;
 const NOTE_TYPES = ["draft", "character", "location", "organization", "story"] as const;
@@ -106,6 +115,18 @@ type NoteContextMenuState = {
   note: WorkspaceNoteListItem;
   x: number;
   y: number;
+} | null;
+
+type NoteTagsDialogState = {
+  noteId: string;
+  title: string;
+  tags: string[];
+} | null;
+
+type NoteLockDialogState = {
+  mode: "set" | "remove" | "unlock";
+  noteId: string;
+  title: string;
 } | null;
 
 type RelationshipPopoverState = {
@@ -164,10 +185,13 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
   const [entityModal, setEntityModal] = useState<EntityModalState>(null);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState>(null);
   const [noteContextMenu, setNoteContextMenu] = useState<NoteContextMenuState>(null);
+  const [noteTagsDialog, setNoteTagsDialog] = useState<NoteTagsDialogState>(null);
+  const [noteLockDialog, setNoteLockDialog] = useState<NoteLockDialogState>(null);
   const [keyboardNoteId, setKeyboardNoteId] = useState<string | null>(selectedNote?.id ?? null);
   const [noteColors, setNoteColors] = useState<Record<string, string>>({});
   const [noteColorsLoaded, setNoteColorsLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [sessionUnlockedNoteIds, setSessionUnlockedNoteIds] = useState<string[]>([]);
   const [activeNote, setActiveNote] = useState<WorkspaceSelectedNote | null>(selectedNote);
   const [title, setTitle] = useState(selectedNote?.title ?? "");
   const [content, setContent] = useState(selectedNote?.content ?? "");
@@ -200,6 +224,7 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
 
   const selectedNoteId = activeNote?.id ?? null;
   const focusedNoteId = keyboardNoteId ?? selectedNoteId;
+  const activeNoteRequiresUnlock = Boolean(activeNote?.isLocked && !sessionUnlockedNoteIds.includes(activeNote.id));
   const editorMatchCount = useMemo(() => countTextMatches(stripHtml(content), editorFindQuery), [content, editorFindQuery]);
   const entityRecords = useMemo(() => buildEntityRecords(entityOptions, localEntityIndex), [entityOptions, localEntityIndex]);
 
@@ -265,6 +290,23 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
     setNoteColors(readStoredNoteColors());
     setNoteColorsLoaded(true);
   }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(UNLOCKED_NOTES_SESSION_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) setSessionUnlockedNoteIds(parsed.filter((value): value is string => typeof value === "string"));
+    } catch {
+      setSessionUnlockedNoteIds([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(UNLOCKED_NOTES_SESSION_KEY, JSON.stringify(sessionUnlockedNoteIds));
+    } catch {}
+  }, [sessionUnlockedNoteIds]);
 
   useEffect(() => {
     if (!noteColorsLoaded) return;
@@ -507,6 +549,15 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
     };
   }, []);
 
+  function showNoteContextMenu(note: WorkspaceNoteListItem, x: number, y: number) {
+    setKeyboardNoteId(note.id);
+    setNoteContextMenu({
+      note,
+      x: clampContextMenuX(x),
+      y: clampContextMenuY(y)
+    });
+  }
+
   async function createNote(input: { title?: string; content?: string; noteType?: string } = {}) {
     if (isCreating) return;
     const nextTitle = input.title?.trim() || "Untitled";
@@ -526,6 +577,10 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
       navigationLabel,
       sortOrder: nextSortOrder(localNotes, navigationNodeId),
       isPinned: false,
+      manualTags: [],
+      isLocked: false,
+      lockedAt: null,
+      lockedBy: null,
       noteType: nextType,
       entity: null,
       interconnections: []
@@ -539,6 +594,10 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
       navigationLabel,
       sortOrder: optimisticNote.sortOrder,
       isPinned: false,
+      manualTags: [],
+      isLocked: false,
+      lockedAt: null,
+      lockedBy: null,
       noteType: nextType,
       entity: null,
       interconnections: []
@@ -583,6 +642,10 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
               title: latest.title.trim() || nextTitle,
               content: latest.content,
               noteType: nextType,
+              manualTags: [],
+              isLocked: false,
+              lockedAt: null,
+              lockedBy: null,
               entity,
               interconnections: [],
               preview: firstLine(latest.content) || "No content yet."
@@ -597,6 +660,10 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
               title: latest.title.trim() || nextTitle,
               content: latest.content,
               noteType: nextType,
+              manualTags: [],
+              isLocked: false,
+              lockedAt: null,
+              lockedBy: null,
               entity,
               interconnections: []
             }
@@ -638,6 +705,10 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
       navigationLabel: note.navigationLabel,
       sortOrder: note.sortOrder,
       isPinned: note.isPinned,
+      manualTags: note.manualTags,
+      isLocked: note.isLocked,
+      lockedAt: note.lockedAt,
+      lockedBy: note.lockedBy,
       noteType: note.noteType,
       entity: note.entity,
       interconnections: note.interconnections
@@ -706,7 +777,7 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
 
   async function deleteNoteById(note: WorkspaceNoteListItem | WorkspaceSelectedNote) {
     if (isDeleting || isTemporaryNoteId(note.id)) return;
-    const confirmed = window.confirm(`Delete "${note.title.trim() || "Untitled Note"}"? This cannot be undone.`);
+    const confirmed = window.confirm(`Delete "${note.title.trim() || "Untitled Note"}"?`);
     if (!confirmed) return;
 
     const previousNotes = localNotes;
@@ -715,6 +786,7 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
     setIsDeleting(true);
     setLocalNotes((current) => current.filter((item) => item.id !== note.id));
     setLocalSearchNotes((current) => current.filter((item) => item.id !== note.id));
+    setSessionUnlockedNoteIds((current) => current.filter((id) => id !== note.id));
     if (activeNote?.id === note.id) {
       setActiveNote(null);
       setKeyboardNoteId(null);
@@ -755,6 +827,137 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
       setLocalNotes(previousNotes);
       setLocalSearchNotes(previousSearchNotes);
     }
+  }
+
+  async function duplicateNoteById(noteId: string) {
+    const source = localNotes.find((note) => note.id === noteId) ?? localSearchNotes.find((note) => note.id === noteId);
+    if (!source || isTemporaryNoteId(source.id)) return;
+    try {
+      const duplicated = await duplicateEditorNoteAction(noteId);
+      if (!duplicated) return;
+      const duplicatedNote: WorkspaceNoteListItem = {
+        id: duplicated.id,
+        title: duplicated.title,
+        content: source.content,
+        preview: firstLine(source.content) || "No content yet.",
+        updatedAt: duplicated.updatedAt.toISOString(),
+        navigationNodeId: source.navigationNodeId,
+        navigationLabel: source.navigationLabel,
+        sortOrder: source.sortOrder + 1,
+        isPinned: duplicated.isPinned,
+        manualTags: [...source.manualTags],
+        isLocked: duplicated.isLocked,
+        lockedAt: duplicated.lockedAt?.toISOString() ?? null,
+        lockedBy: duplicated.lockedBy ?? null,
+        noteType: source.noteType,
+        entity: duplicated.entity ?? source.entity,
+        interconnections: []
+      };
+      setLocalNotes((current) => sortWorkspaceNotes([duplicatedNote, ...current]));
+      setLocalSearchNotes((current) => sortWorkspaceNotes([duplicatedNote, ...current]));
+    } catch (caught) {
+      setSaveState("error");
+      setSaveError(caught instanceof Error ? caught.message : "Note duplication failed.");
+    }
+  }
+
+  async function updateNoteTagsForId(noteId: string, tags: string[]) {
+    const previousNotes = localNotes;
+    const previousSearchNotes = localSearchNotes;
+    const previousActiveNote = activeNote;
+
+    updateNoteCollections((note) => (note.id === noteId ? { ...note, manualTags: tags } : note));
+    setActiveNote((current) => (current?.id === noteId ? { ...current, manualTags: tags } : current));
+
+    try {
+      await updateNoteTagsAction({ noteId, tags });
+    } catch (caught) {
+      setLocalNotes(previousNotes);
+      setLocalSearchNotes(previousSearchNotes);
+      setActiveNote(previousActiveNote);
+      setSaveState("error");
+      setSaveError(caught instanceof Error ? caught.message : "Tags could not be updated.");
+      throw caught;
+    }
+  }
+
+  async function lockNoteById(noteId: string, passcode: string) {
+    const previousNotes = localNotes;
+    const previousSearchNotes = localSearchNotes;
+    const previousActiveNote = activeNote;
+    const lockedAt = new Date().toISOString();
+
+    updateNoteCollections((note) =>
+      note.id === noteId
+        ? {
+            ...note,
+            isLocked: true,
+            lockedAt,
+            lockedBy: previousActiveNote?.lockedBy ?? null
+          }
+        : note
+    );
+    setActiveNote((current) => (current?.id === noteId ? { ...current, isLocked: true, lockedAt, lockedBy: current.lockedBy ?? null } : current));
+    setSessionUnlockedNoteIds((current) => [...new Set([...current, noteId])]);
+
+    try {
+      const summary = await lockNoteAction({ noteId, passcode });
+      updateNoteCollections((note) =>
+        note.id === noteId
+          ? {
+              ...note,
+              isLocked: summary.isLocked,
+              lockedAt: summary.lockedAt ? new Date(summary.lockedAt).toISOString() : null,
+              lockedBy: summary.lockedBy
+            }
+          : note
+      );
+      setActiveNote((current) =>
+        current?.id === noteId
+          ? {
+              ...current,
+              isLocked: summary.isLocked,
+              lockedAt: summary.lockedAt ? new Date(summary.lockedAt).toISOString() : null,
+              lockedBy: summary.lockedBy
+            }
+          : current
+      );
+    } catch (caught) {
+      setLocalNotes(previousNotes);
+      setLocalSearchNotes(previousSearchNotes);
+      setActiveNote(previousActiveNote);
+      setSessionUnlockedNoteIds((current) => current.filter((id) => id !== noteId));
+      setSaveState("error");
+      setSaveError(caught instanceof Error ? caught.message : "Note lock failed.");
+      throw caught;
+    }
+  }
+
+  async function removeLockFromNote(noteId: string, passcode: string) {
+    const previousNotes = localNotes;
+    const previousSearchNotes = localSearchNotes;
+    const previousActiveNote = activeNote;
+
+    updateNoteCollections((note) => (note.id === noteId ? { ...note, isLocked: false, lockedAt: null, lockedBy: null } : note));
+    setActiveNote((current) => (current?.id === noteId ? { ...current, isLocked: false, lockedAt: null, lockedBy: null } : current));
+    setSessionUnlockedNoteIds((current) => current.filter((id) => id !== noteId));
+
+    try {
+      await unlockNoteAction({ noteId, passcode });
+    } catch (caught) {
+      setLocalNotes(previousNotes);
+      setLocalSearchNotes(previousSearchNotes);
+      setActiveNote(previousActiveNote);
+      setSaveState("error");
+      setSaveError(caught instanceof Error ? caught.message : "Note unlock failed.");
+      throw caught;
+    }
+  }
+
+  async function unlockNoteForSession(noteId: string, passcode: string) {
+    const verified = await verifyNotePasscodeAction({ noteId, passcode });
+    if (!verified) throw new Error("Incorrect passcode.");
+    setSessionUnlockedNoteIds((current) => [...new Set([...current, noteId])]);
   }
 
   async function reorderNote(noteId: string, overNoteId: string) {
@@ -1143,7 +1346,7 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
         </div>
       </div>
       <div
-        className={`relative shrink-0 overflow-hidden transition-all duration-200 ease-out ${mobilePanel === "notes" ? "flex w-full" : "hidden"} lg:block`}
+        className={`relative h-full min-h-0 shrink-0 overflow-hidden transition-all duration-200 ease-out ${mobilePanel === "notes" ? "flex w-full" : "hidden"} lg:block`}
         style={{
           width: !isMobileLayout ? (leftNotesOpen ? `${leftPanelWidth}px` : "0px") : undefined,
           minWidth: !isMobileLayout ? (leftNotesOpen ? `${PANEL_MIN}px` : "0px") : undefined,
@@ -1152,7 +1355,7 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
         }}
       >
         <section
-          className={`min-h-0 min-w-0 w-full flex-col overflow-hidden border-b border-white/10 transition-opacity duration-200 lg:border-b-0 lg:border-r ${leftNotesOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"} ${mobilePanel === "notes" ? "flex" : "hidden"} lg:flex`}
+          className={`h-full min-h-0 min-w-0 w-full flex-col overflow-hidden border-b border-white/10 transition-opacity duration-200 lg:border-b-0 lg:border-r ${leftNotesOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"} ${mobilePanel === "notes" ? "flex" : "hidden"} lg:flex`}
           data-notes-list-width
         >
           <header className="flex min-w-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-4">
@@ -1179,7 +1382,7 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
             <p className="min-w-0 truncate whitespace-nowrap">{isSearching ? "Searching all notes" : "Filtered by folder"}</p>
           </div>
 
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto [scroll-behavior:smooth]">
+          <div className="panel-scroll min-w-0 flex-1">
             <div className="min-w-0 divide-y divide-white/10">
               {mounted ? (
                 <SortableContext items={visibleNoteIds} strategy={verticalListSortingStrategy}>
@@ -1210,9 +1413,9 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
                           onTogglePinned={togglePinned}
                           onContextMenu={(event) => {
                             event.preventDefault();
-                            setKeyboardNoteId(note.id);
-                            setNoteContextMenu({ note, x: event.clientX, y: event.clientY });
+                            showNoteContextMenu(note, event.clientX, event.clientY);
                           }}
+                          onLongPressContextMenu={(position) => showNoteContextMenu(note, position.x, position.y)}
                         />
                       </div>
                     );
@@ -1247,9 +1450,9 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
                           onTogglePinned={togglePinned}
                           onContextMenu={(event) => {
                             event.preventDefault();
-                            setKeyboardNoteId(note.id);
-                            setNoteContextMenu({ note, x: event.clientX, y: event.clientY });
+                            showNoteContextMenu(note, event.clientX, event.clientY);
                           }}
+                          onLongPressContextMenu={(position) => showNoteContextMenu(note, position.x, position.y)}
                         />
                       </div>
                     );
@@ -1269,6 +1472,18 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
               {noteContextMenu ? (
                 <NoteContextMenu
                   state={noteContextMenu}
+                  onTogglePinned={(note) => {
+                    setNoteContextMenu(null);
+                    void togglePinned(note.id);
+                  }}
+                  onTag={(note) => {
+                    setNoteContextMenu(null);
+                    setNoteTagsDialog({ noteId: note.id, title: note.title, tags: note.manualTags });
+                  }}
+                  onDuplicate={(note) => {
+                    setNoteContextMenu(null);
+                    void duplicateNoteById(note.id);
+                  }}
                   onRename={(note) => {
                     setKeyboardNoteId(note.id);
                     setEditingTitleId(note.id);
@@ -1282,6 +1497,14 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
                   onDelete={(note) => {
                     setNoteContextMenu(null);
                     void deleteNoteById(note);
+                  }}
+                  onToggleLock={(note) => {
+                    setNoteContextMenu(null);
+                    setNoteLockDialog({
+                      mode: note.isLocked ? "remove" : "set",
+                      noteId: note.id,
+                      title: note.title
+                    });
                   }}
                   onSetColor={setNoteColor}
                   navigationOptions={navigationOptions}
@@ -1300,7 +1523,7 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
         className={`hidden w-1 shrink-0 cursor-col-resize bg-white/5 transition hover:bg-[var(--signal)]/40 ${leftNotesOpen ? "lg:block" : "lg:hidden"}`}
       />
 
-      <section className={`${mobilePanel === "editor" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex lg:min-w-[400px]`}>
+      <section className={`${mobilePanel === "editor" ? "flex" : "hidden"} h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex lg:min-w-[400px]`}>
         {activeNote ? (
           <>
             <div className="sticky top-0 z-30 border-b border-white/10 bg-black/90 backdrop-blur">
@@ -1436,41 +1659,71 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
               </div>
             ) : null}
 
-            <div className="flex min-h-0 flex-1 flex-col px-5 py-5">
-              {linkedEntity && isInvalidEntityName(linkedEntity.name) ? (
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-100">
-                  <span>This entity needs a name.</span>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setEntityModal({ mode: "repair" })} className="h-8 rounded border border-red-200/20 px-3 text-xs font-bold transition hover:bg-red-200/10">
-                      Rename entity
-                    </button>
-                    <button type="button" onClick={() => setEntityModal({ mode: "merge" })} className="h-8 rounded border border-red-200/20 px-3 text-xs font-bold transition hover:bg-red-200/10">
-                      Merge entity
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-              {linkedEntity ? <EntityHeaderBar entity={linkedEntity} relationships={activeNote.interconnections} /> : null}
-              <input ref={titleRef} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Untitled" className="w-full rounded border-0 bg-transparent text-4xl font-black tracking-tight text-white outline-none placeholder:text-stone-700 focus-visible:ring-2 focus-visible:ring-[var(--signal)]/35" />
-              <div className="-mx-5 mt-5 flex min-h-0 flex-1 flex-col border-t border-white/10 transition focus-within:ring-1 focus-within:ring-[var(--signal)]/35">
-                <RichTextEditor
-                  value={content}
-                  onChange={setContent}
-                  findQuery={editorFindOpen ? editorFindQuery : ""}
-                  currentNoteId={activeNote.id}
-                  entityIndex={localEntityIndex}
-                  onActionsReady={setEditorActions}
-                  onEntityClick={(entity) => {
-                    if (!activeNote.entity || entity.id === activeNote.entity.id) return;
-                    setConnectionModal({
-                      mode: "quick",
-                      targetEntityId: entity.id,
-                      title: `Create connection with ${entity.title}`
-                    });
-                  }}
-                  onSelectionContextMenu={(selection) => setSelectionMenu(selection)}
-                  onRelationshipSuggestionsChange={setRelationshipSuggestions}
-                />
+            <div className="panel-scroll flex-1">
+              <div className="flex min-h-full flex-col px-5 py-5">
+                {activeNoteRequiresUnlock ? (
+                  <LockedNotePanel
+                    note={activeNote}
+                    onUnlock={(passcode) => unlockNoteForSession(activeNote.id, passcode)}
+                    onRemoveLock={() =>
+                      setNoteLockDialog({
+                        mode: "remove",
+                        noteId: activeNote.id,
+                        title: activeNote.title
+                      })
+                    }
+                  />
+                ) : (
+                  <>
+                    {linkedEntity && isInvalidEntityName(linkedEntity.name) ? (
+                      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-100">
+                        <span>This entity needs a name.</span>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setEntityModal({ mode: "repair" })} className="h-8 rounded border border-red-200/20 px-3 text-xs font-bold transition hover:bg-red-200/10">
+                            Rename entity
+                          </button>
+                          <button type="button" onClick={() => setEntityModal({ mode: "merge" })} className="h-8 rounded border border-red-200/20 px-3 text-xs font-bold transition hover:bg-red-200/10">
+                            Merge entity
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    {linkedEntity ? <EntityHeaderBar entity={linkedEntity} relationships={activeNote.interconnections} /> : null}
+                    <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                      {activeNote.manualTags.length > 0 ? activeNote.manualTags.map((tag) => (
+                        <span key={tag} className="rounded border border-white/10 bg-white/[0.03] px-2 py-1 text-stone-300">
+                          #{tag}
+                        </span>
+                      )) : null}
+                      {activeNote.isLocked ? (
+                        <span className="rounded border border-white/10 bg-white/[0.03] px-2 py-1 text-stone-400">
+                          Locked
+                        </span>
+                      ) : null}
+                    </div>
+                    <input ref={titleRef} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Untitled" className="w-full rounded border-0 bg-transparent text-4xl font-black tracking-tight text-white outline-none placeholder:text-stone-700 focus-visible:ring-2 focus-visible:ring-[var(--signal)]/35" />
+                    <div className="-mx-5 mt-5 flex min-h-0 flex-1 flex-col border-t border-white/10 transition focus-within:ring-1 focus-within:ring-[var(--signal)]/35">
+                      <RichTextEditor
+                        value={content}
+                        onChange={setContent}
+                        findQuery={editorFindOpen ? editorFindQuery : ""}
+                        currentNoteId={activeNote.id}
+                        entityIndex={localEntityIndex}
+                        onActionsReady={setEditorActions}
+                        onEntityClick={(entity) => {
+                          if (!activeNote.entity || entity.id === activeNote.entity.id) return;
+                          setConnectionModal({
+                            mode: "quick",
+                            targetEntityId: entity.id,
+                            title: `Create connection with ${entity.title}`
+                          });
+                        }}
+                        onSelectionContextMenu={(selection) => setSelectionMenu(selection)}
+                        onRelationshipSuggestionsChange={setRelationshipSuggestions}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </>
@@ -1619,6 +1872,27 @@ export function NotesWorkspace({ nodeId, notes, searchNotes, selectedNote, navig
           onMerge={mergeActiveEntityInto}
           onLinkSelection={linkSelectionToEntity}
           onFindExisting={findEntityByNameAction}
+        />
+      ) : null}
+      {noteTagsDialog ? (
+        <NoteTagsDialog
+          state={noteTagsDialog}
+          onClose={() => setNoteTagsDialog(null)}
+          onSave={async (tags) => {
+            await updateNoteTagsForId(noteTagsDialog.noteId, tags);
+            setNoteTagsDialog(null);
+          }}
+        />
+      ) : null}
+      {noteLockDialog ? (
+        <NoteLockDialog
+          state={noteLockDialog}
+          onClose={() => setNoteLockDialog(null)}
+          onSubmit={async (passcode) => {
+            if (noteLockDialog.mode === "set") await lockNoteById(noteLockDialog.noteId, passcode);
+            else await removeLockFromNote(noteLockDialog.noteId, passcode);
+            setNoteLockDialog(null);
+          }}
         />
       ) : null}
     </main>
@@ -1921,7 +2195,7 @@ function SlidingSidePanel({
 }) {
   return (
     <div
-      className={`relative z-10 hidden min-h-0 shrink-0 overflow-hidden transition-all duration-200 ease-out lg:block ${open ? "border-l border-white/10 opacity-100" : "pointer-events-none opacity-0"}`}
+      className={`relative z-10 hidden h-full min-h-0 shrink-0 overflow-hidden transition-all duration-200 ease-out lg:block ${open ? "border-l border-white/10 opacity-100" : "pointer-events-none opacity-0"}`}
       style={{
         width: open ? `${width}px` : "0px",
         minWidth: open ? `${minWidth}px` : "0px",
@@ -2023,7 +2297,7 @@ function EntityDrawer({
           </select>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 [scroll-behavior:smooth]">
+      <div className="panel-scroll flex-1 px-4 py-4">
         {mode === "browse" ? (
           <div className="grid gap-2">
             {currentEntity ? <p className="mb-2 rounded border border-[var(--signal)]/25 bg-[var(--signal)]/10 px-3 py-2 text-xs text-stone-200">Current: <span className="font-bold text-white">{currentEntity.name}</span></p> : null}
@@ -2313,7 +2587,7 @@ function InterconnectedPanel({
         <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-stone-500">Interconnected</h2>
         {activeNote?.entity ? <p className="mt-1 text-sm font-bold text-white">{activeNote.entity.name}</p> : null}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 [scroll-behavior:smooth]">
+      <div className="panel-scroll flex-1 px-4 py-4">
         {!activeNote ? <p className="text-sm leading-6 text-stone-500">Select a note to view relationships</p> : null}
         {activeNote && !activeNote.entity ? <p className="text-sm leading-6 text-stone-500">No entity linked to this note</p> : null}
         {activeNote?.entity && suggestions.length > 0 ? (
@@ -2506,7 +2780,8 @@ function StaticNoteItem({
   onSaveTitle,
   onCancelTitleEdit,
   onTogglePinned,
-  onContextMenu
+  onContextMenu,
+  onLongPressContextMenu
 }: {
   note: WorkspaceNoteListItem;
   isSelected: boolean;
@@ -2520,6 +2795,7 @@ function StaticNoteItem({
   onCancelTitleEdit: () => void;
   onTogglePinned: (noteId: string) => void;
   onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  onLongPressContextMenu: (position: { x: number; y: number }) => void;
 }) {
   return (
     <div>
@@ -2537,6 +2813,7 @@ function StaticNoteItem({
         onCancelTitleEdit={onCancelTitleEdit}
         onTogglePinned={onTogglePinned}
         onContextMenu={onContextMenu}
+        onLongPressContextMenu={onLongPressContextMenu}
       />
     </div>
   );
@@ -2700,16 +2977,24 @@ function RelationshipSuggestions({
 
 function NoteContextMenu({
   state,
+  onTogglePinned,
+  onTag,
+  onDuplicate,
   onRename,
   onMove,
   onDelete,
+  onToggleLock,
   onSetColor,
   navigationOptions
 }: {
   state: NonNullable<NoteContextMenuState>;
+  onTogglePinned: (note: WorkspaceNoteListItem) => void;
+  onTag: (note: WorkspaceNoteListItem) => void;
+  onDuplicate: (note: WorkspaceNoteListItem) => void;
   onRename: (note: WorkspaceNoteListItem) => void;
   onMove: (note: WorkspaceNoteListItem, navigationNodeId: string | null) => void;
   onDelete: (note: WorkspaceNoteListItem) => void;
+  onToggleLock: (note: WorkspaceNoteListItem) => void;
   onSetColor: (noteId: string, color: string) => void;
   navigationOptions: NavigationNodeOption[];
 }) {
@@ -2721,6 +3006,15 @@ function NoteContextMenu({
       className="fixed z-50 min-w-52 rounded border border-white/10 bg-zinc-950 py-1 text-sm text-stone-200 shadow-xl"
       style={{ left: state.x, top: state.y }}
     >
+      <button type="button" onClick={() => onTogglePinned(state.note)} className="block w-full px-3 py-2 text-left hover:bg-white/10">
+        {state.note.isPinned ? "Unpin" : "Pin"}
+      </button>
+      <button type="button" onClick={() => onTag(state.note)} className="block w-full px-3 py-2 text-left hover:bg-white/10">
+        Tag
+      </button>
+      <button type="button" onClick={() => onDuplicate(state.note)} className="block w-full px-3 py-2 text-left hover:bg-white/10">
+        Duplicate
+      </button>
       <button type="button" onClick={() => onRename(state.note)} className="block w-full px-3 py-2 text-left hover:bg-white/10">
         Rename
       </button>
@@ -2761,6 +3055,9 @@ function NoteContextMenu({
           ))}
         </div>
       </div>
+      <button type="button" onClick={() => onToggleLock(state.note)} className="block w-full px-3 py-2 text-left hover:bg-white/10">
+        {state.note.isLocked ? "Unlock" : "Lock"}
+      </button>
       <button type="button" onClick={() => onDelete(state.note)} className="block w-full px-3 py-2 text-left text-red-200 hover:bg-red-500/10">
         Delete
       </button>
@@ -2780,7 +3077,8 @@ function SortableNoteItem({
   onSaveTitle,
   onCancelTitleEdit,
   onTogglePinned,
-  onContextMenu
+  onContextMenu,
+  onLongPressContextMenu
 }: {
   note: WorkspaceNoteListItem;
   isSelected: boolean;
@@ -2794,6 +3092,7 @@ function SortableNoteItem({
   onCancelTitleEdit: () => void;
   onTogglePinned: (noteId: string) => void;
   onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  onLongPressContextMenu: (position: { x: number; y: number }) => void;
 }) {
   const { attributes, isDragging, listeners, setNodeRef, transform, transition } = useSortable({ id: `note:${note.id}` });
 
@@ -2815,6 +3114,7 @@ function SortableNoteItem({
         onCancelTitleEdit={onCancelTitleEdit}
         onTogglePinned={onTogglePinned}
         onContextMenu={onContextMenu}
+        onLongPressContextMenu={onLongPressContextMenu}
       />
     </div>
   );
@@ -2835,7 +3135,8 @@ function NoteItemContent({
   onSaveTitle,
   onCancelTitleEdit,
   onTogglePinned,
-  onContextMenu
+  onContextMenu,
+  onLongPressContextMenu
 }: {
   note: WorkspaceNoteListItem;
   isSelected: boolean;
@@ -2852,13 +3153,66 @@ function NoteItemContent({
   onCancelTitleEdit: () => void;
   onTogglePinned: (noteId: string) => void;
   onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  onLongPressContextMenu: (position: { x: number; y: number }) => void;
 }) {
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  function clearLongPressTimer() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function handleTouchStart(event: ReactTouchEvent<HTMLDivElement>) {
+    const touch = event.touches[0];
+    if (!touch || isEditingTitle) return;
+    longPressTriggeredRef.current = false;
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    clearLongPressTimer();
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      onLongPressContextMenu({ x: touch.clientX, y: touch.clientY });
+    }, 500);
+  }
+
+  function handleTouchMove(event: ReactTouchEvent<HTMLDivElement>) {
+    const touch = event.touches[0];
+    const origin = touchStartRef.current;
+    if (!touch || !origin) return;
+    if (Math.abs(touch.clientX - origin.x) > 10 || Math.abs(touch.clientY - origin.y) > 10) clearLongPressTimer();
+  }
+
+  function handleTouchEnd(event: ReactTouchEvent<HTMLDivElement>) {
+    clearLongPressTimer();
+    touchStartRef.current = null;
+    if (!longPressTriggeredRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  useEffect(() => () => clearLongPressTimer(), []);
+
   return (
     <div
       {...dragAttributes}
       {...dragListeners}
-      onClick={onOpen}
+      onClick={(event) => {
+        if (longPressTriggeredRef.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          longPressTriggeredRef.current = false;
+          return;
+        }
+        onOpen();
+      }}
       onContextMenu={onContextMenu}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
       style={{ borderLeftColor: color || "transparent", backgroundColor: color && !isSelected ? `${color}12` : undefined }}
       className={`group flex min-w-0 cursor-pointer overflow-hidden border-l-2 ${isDragging ? "cursor-grab active:cursor-grabbing" : ""} items-stretch transition ${isSelected ? "border-[var(--signal)] bg-[var(--signal)]/15 shadow-[inset_0_0_0_1px_rgba(45,212,191,0.24)]" : "hover:bg-white/[0.04]"}`}
     >
@@ -2893,6 +3247,12 @@ function NoteItemContent({
                 type="button"
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => {
+                  if (longPressTriggeredRef.current) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    longPressTriggeredRef.current = false;
+                    return;
+                  }
                   event.stopPropagation();
                   onOpen();
                 }}
@@ -2911,6 +3271,12 @@ function NoteItemContent({
           <button
             type="button"
             onClick={(event) => {
+              if (longPressTriggeredRef.current) {
+                event.preventDefault();
+                event.stopPropagation();
+                longPressTriggeredRef.current = false;
+                return;
+              }
               event.stopPropagation();
               onOpen();
             }}
@@ -2918,6 +3284,14 @@ function NoteItemContent({
           >
             <span className="line-clamp-2 text-sm leading-6 text-stone-400">{note.preview || "No content yet."}</span>
             <span className="mt-2 block min-w-0 max-w-full truncate whitespace-nowrap text-xs text-[var(--signal)]">{note.navigationLabel}</span>
+            <span className="mt-2 flex min-w-0 flex-wrap items-center gap-2 text-[0.7rem] text-stone-500">
+              {note.isLocked ? <span className="rounded border border-white/10 px-1.5 py-0.5 text-stone-400">Locked</span> : null}
+              {note.manualTags.slice(0, 3).map((tag) => (
+                <span key={tag} className="rounded border border-white/10 px-1.5 py-0.5 text-stone-400">
+                  #{tag}
+                </span>
+              ))}
+            </span>
           </button>
         </div>
       </div>
@@ -2925,6 +3299,12 @@ function NoteItemContent({
         type="button"
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
+          if (longPressTriggeredRef.current) {
+            event.preventDefault();
+            event.stopPropagation();
+            longPressTriggeredRef.current = false;
+            return;
+          }
           event.stopPropagation();
           onTogglePinned(note.id);
         }}
@@ -2939,6 +3319,211 @@ function NoteItemContent({
 
 function sortWorkspaceNotes(notes: WorkspaceNoteListItem[]) {
   return [...notes].sort((left, right) => Number(right.isPinned) - Number(left.isPinned) || left.sortOrder - right.sortOrder || new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime() || left.title.localeCompare(right.title));
+}
+
+function NoteTagsDialog({
+  state,
+  onClose,
+  onSave
+}: {
+  state: NonNullable<NoteTagsDialogState>;
+  onClose: () => void;
+  onSave: (tags: string[]) => Promise<void>;
+}) {
+  const [value, setValue] = useState(state.tags.join(", "));
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(event: ReactFormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setIsSaving(true);
+    try {
+      const tags = [...new Set(value.split(",").map((tag) => tag.trim()).filter(Boolean))];
+      await onSave(tags);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Tags could not be updated.");
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="note-tags-title">
+      <form onSubmit={handleSubmit} className="w-full max-w-lg rounded border border-white/10 bg-zinc-950 p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="note-tags-title" className="text-lg font-black text-white">Edit Tags</h2>
+            <p className="mt-1 text-sm text-stone-500">{state.title}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded px-2 py-1 text-sm font-bold text-stone-500 transition hover:bg-white/10 hover:text-white">
+            Close
+          </button>
+        </div>
+        <label className="mt-5 grid gap-2 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">
+          Tags
+          <input
+            autoFocus
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            placeholder="story, continuity, draft"
+            className="h-10 rounded border border-white/10 bg-black/40 px-3 text-sm normal-case tracking-normal text-white outline-none placeholder:text-stone-600 focus:border-[var(--signal)]/50"
+          />
+        </label>
+        <p className="mt-2 text-xs text-stone-500">Use commas to add or remove tags.</p>
+        {error ? <p className="mt-3 text-xs text-red-300">{error}</p> : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="h-9 rounded border border-white/10 px-3 text-xs font-bold text-stone-400 transition hover:bg-white/10 hover:text-white">
+            Cancel
+          </button>
+          <button type="submit" disabled={isSaving} className="h-9 rounded border border-[var(--signal)]/40 bg-[var(--signal)]/10 px-3 text-xs font-bold text-white transition hover:bg-[var(--signal)]/20 disabled:opacity-60">
+            {isSaving ? "Saving..." : "Save tags"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function NoteLockDialog({
+  state,
+  onClose,
+  onSubmit
+}: {
+  state: NonNullable<NoteLockDialogState>;
+  onClose: () => void;
+  onSubmit: (passcode: string) => Promise<void>;
+}) {
+  const [passcode, setPasscode] = useState("");
+  const [confirmPasscode, setConfirmPasscode] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isSetting = state.mode === "set";
+
+  async function handleSubmit(event: ReactFormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    const nextPasscode = passcode.trim();
+    if (!nextPasscode) {
+      setError("Enter a passcode.");
+      return;
+    }
+    if (isSetting && nextPasscode !== confirmPasscode.trim()) {
+      setError("Passcodes do not match.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await onSubmit(nextPasscode);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Lock action failed.");
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="note-lock-title">
+      <form onSubmit={handleSubmit} className="w-full max-w-lg rounded border border-white/10 bg-zinc-950 p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="note-lock-title" className="text-lg font-black text-white">{isSetting ? "Lock Note" : "Unlock Note"}</h2>
+            <p className="mt-1 text-sm text-stone-500">{state.title}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded px-2 py-1 text-sm font-bold text-stone-500 transition hover:bg-white/10 hover:text-white">
+            Close
+          </button>
+        </div>
+        <label className="mt-5 grid gap-2 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">
+          Passcode
+          <input
+            autoFocus
+            type="password"
+            value={passcode}
+            onChange={(event) => setPasscode(event.target.value)}
+            className="h-10 rounded border border-white/10 bg-black/40 px-3 text-sm normal-case tracking-normal text-white outline-none focus:border-[var(--signal)]/50"
+          />
+        </label>
+        {isSetting ? (
+          <label className="mt-3 grid gap-2 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">
+            Confirm Passcode
+            <input
+              type="password"
+              value={confirmPasscode}
+              onChange={(event) => setConfirmPasscode(event.target.value)}
+              className="h-10 rounded border border-white/10 bg-black/40 px-3 text-sm normal-case tracking-normal text-white outline-none focus:border-[var(--signal)]/50"
+            />
+          </label>
+        ) : null}
+        {error ? <p className="mt-3 text-xs text-red-300">{error}</p> : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="h-9 rounded border border-white/10 px-3 text-xs font-bold text-stone-400 transition hover:bg-white/10 hover:text-white">
+            Cancel
+          </button>
+          <button type="submit" disabled={isSaving} className="h-9 rounded border border-[var(--signal)]/40 bg-[var(--signal)]/10 px-3 text-xs font-bold text-white transition hover:bg-[var(--signal)]/20 disabled:opacity-60">
+            {isSaving ? "Saving..." : isSetting ? "Lock note" : "Remove lock"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function LockedNotePanel({
+  note,
+  onUnlock,
+  onRemoveLock
+}: {
+  note: WorkspaceSelectedNote;
+  onUnlock: (passcode: string) => Promise<void>;
+  onRemoveLock: () => void;
+}) {
+  const [passcode, setPasscode] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(event: ReactFormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await onUnlock(passcode);
+      setPasscode("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unlock failed.");
+      setIsSubmitting(false);
+      return;
+    }
+    setIsSubmitting(false);
+  }
+
+  return (
+    <div className="grid min-h-[50vh] flex-1 place-items-center">
+      <form onSubmit={handleSubmit} className="w-full max-w-md rounded border border-white/10 bg-white/[0.03] p-5 shadow-xl">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-stone-500">Locked Note</p>
+        <h2 className="mt-2 text-2xl font-black text-white">{note.title}</h2>
+        <p className="mt-2 text-sm leading-6 text-stone-400">This note is locked. Enter the passcode to unlock it for this session.</p>
+        {note.lockedAt ? <p className="mt-2 text-xs text-stone-500">Locked {formatDateTime(note.lockedAt)}</p> : null}
+        <label className="mt-5 grid gap-2 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">
+          Passcode
+          <input
+            autoFocus
+            type="password"
+            value={passcode}
+            onChange={(event) => setPasscode(event.target.value)}
+            className="h-10 rounded border border-white/10 bg-black/40 px-3 text-sm normal-case tracking-normal text-white outline-none focus:border-[var(--signal)]/50"
+          />
+        </label>
+        {error ? <p className="mt-3 text-xs text-red-300">{error}</p> : null}
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onRemoveLock} className="h-9 rounded border border-white/10 px-3 text-xs font-bold text-stone-300 transition hover:bg-white/10 hover:text-white">
+            Remove lock
+          </button>
+          <button type="submit" disabled={isSubmitting} className="h-9 rounded border border-[var(--signal)]/40 bg-[var(--signal)]/10 px-3 text-xs font-bold text-white transition hover:bg-[var(--signal)]/20 disabled:opacity-60">
+            {isSubmitting ? "Unlocking..." : "Unlock note"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
 }
 
 function nextSortOrder(notes: WorkspaceNoteListItem[], navigationNodeId: string | null) {
@@ -2965,6 +3550,16 @@ function replaceHistoryFolder(navigationNodeId: string | null, noteId: string) {
   url.searchParams.set("node", navigationNodeId ?? "unassigned");
   url.searchParams.set("note", noteId);
   window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}`);
+}
+
+function clampContextMenuX(x: number) {
+  if (typeof window === "undefined") return x;
+  return Math.max(12, Math.min(x, window.innerWidth - 236));
+}
+
+function clampContextMenuY(y: number) {
+  if (typeof window === "undefined") return y;
+  return Math.max(12, Math.min(y, window.innerHeight - 360));
 }
 
 function firstLine(value: string) {

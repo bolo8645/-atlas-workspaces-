@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { ReviewStatus } from "@prisma/client";
 import { runNotesImport } from "@/lib/import/importer";
 import { hasDatabaseUrl } from "@/lib/db-env";
-import { bulkUpdateNoteNavigationAssignment, createEditorNote, createManualRelationship, deleteEditorNote, moveNoteToNavigationNode, reorderNotes, toggleNotePinned, updateEditorNote, updateNoteEntityLink, updateNoteMetadata, updateNoteNavigationAssignment, updateReviewItemStatus } from "@/lib/notes/mutations";
+import { bulkUpdateNoteNavigationAssignment, createEditorNote, createManualRelationship, deleteEditorNote, duplicateEditorNote, lockNote, moveNoteToNavigationNode, reorderNotes, toggleNotePinned, unlockNote, updateEditorNote, updateNoteEntityLink, updateNoteMetadata, updateNoteNavigationAssignment, updateNoteTags, updateReviewItemStatus, verifyNotePasscode } from "@/lib/notes/mutations";
 
 export async function updateNoteMetadataAction(formData: FormData) {
   if (!hasDatabaseUrl) return;
@@ -150,6 +150,18 @@ export async function deleteEditorNoteAction(noteId: string) {
   revalidatePath("/admin/navigation");
 }
 
+export async function duplicateEditorNoteAction(noteId: string) {
+  if (!hasDatabaseUrl) return null;
+
+  const note = await duplicateEditorNote(noteId);
+
+  revalidatePath("/");
+  revalidatePath("/notes");
+  revalidatePath(`/notes/${noteId}`);
+
+  return note;
+}
+
 export async function toggleNotePinnedAction(input: { noteId: string; isPinned: boolean }) {
   if (!hasDatabaseUrl) return;
 
@@ -158,6 +170,45 @@ export async function toggleNotePinnedAction(input: { noteId: string; isPinned: 
   revalidatePath("/");
   revalidatePath("/notes");
   revalidatePath(`/notes/${input.noteId}`);
+}
+
+export async function updateNoteTagsAction(input: { noteId: string; tags: string[] }) {
+  if (!hasDatabaseUrl) return;
+
+  await updateNoteTags(input);
+
+  revalidatePath("/");
+  revalidatePath("/notes");
+  revalidatePath(`/notes/${input.noteId}`);
+}
+
+export async function lockNoteAction(input: { noteId: string; passcode: string }) {
+  if (!hasDatabaseUrl) return { isLocked: true, lockedAt: new Date(), lockedBy: null };
+
+  const note = await lockNote(input);
+
+  revalidatePath("/");
+  revalidatePath("/notes");
+  revalidatePath(`/notes/${input.noteId}`);
+
+  return note;
+}
+
+export async function unlockNoteAction(input: { noteId: string; passcode: string }) {
+  if (!hasDatabaseUrl) return { isLocked: false, lockedAt: null, lockedBy: null };
+
+  const note = await unlockNote(input);
+
+  revalidatePath("/");
+  revalidatePath("/notes");
+  revalidatePath(`/notes/${input.noteId}`);
+
+  return note;
+}
+
+export async function verifyNotePasscodeAction(input: { noteId: string; passcode: string }) {
+  if (!hasDatabaseUrl) return false;
+  return verifyNotePasscode(input);
 }
 
 export async function reorderNotesAction(input: { navigationNodeId?: string | null; noteIds: string[] }) {

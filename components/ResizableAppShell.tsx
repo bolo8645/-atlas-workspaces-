@@ -111,10 +111,10 @@ export function ResizableAppShell({ sidebar, children }: ResizableAppShellProps)
   }, []);
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden">
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden">
       <div className="hidden shrink-0 lg:block" style={{ width: RAIL_WIDTH }} aria-hidden="true" />
       <div
-        className={`relative z-10 hidden min-h-0 shrink-0 overflow-hidden transition-all duration-200 ease-out lg:block ${leftFoldersOpen ? "border-r border-white/10 opacity-100" : "pointer-events-none opacity-0"}`}
+        className={`relative z-10 hidden h-full min-h-0 shrink-0 overflow-hidden transition-all duration-200 ease-out lg:block ${leftFoldersOpen ? "border-r border-white/10 opacity-100" : "pointer-events-none opacity-0"}`}
         style={{
           width: leftFoldersOpen ? `${sidebarWidth}px` : "0px",
           minWidth: leftFoldersOpen ? `${MIN_SIDEBAR_WIDTH}px` : "0px",
@@ -131,7 +131,7 @@ export function ResizableAppShell({ sidebar, children }: ResizableAppShellProps)
         onPointerDown={beginResize}
         className={`hidden w-1 shrink-0 cursor-col-resize bg-white/5 transition hover:bg-[var(--signal)]/40 ${leftFoldersOpen ? "lg:block" : "lg:hidden"}`}
       />
-      <div className="min-w-0 flex-1 overflow-hidden" style={{ "--sidebar-width": `${leftFoldersOpen ? sidebarWidth : 0}px` } as CSSProperties}>
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden" style={{ "--sidebar-width": `${leftFoldersOpen ? sidebarWidth : 0}px` } as CSSProperties}>
         <div className="border-b border-white/10 bg-black/35 px-3 py-2 lg:hidden">
           <button
             type="button"

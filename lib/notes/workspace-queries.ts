@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { hasDatabaseUrl } from "@/lib/db-env";
 import { prisma } from "@/lib/prisma";
 import { getActiveWorkspaceId } from "@/lib/workspaces";
@@ -23,59 +23,90 @@ export type InterconnectedRelationship = {
   };
 };
 
+const noteSupportsDeletedAt = Prisma.dmmf.datamodel.models
+  .find((model) => model.name === "Note")
+  ?.fields.some((field) => field.name === "deletedAt") ?? false;
+
+const noteSupportsPinnedState = Prisma.dmmf.datamodel.models
+  .find((model) => model.name === "Note")
+  ?.fields.some((field) => field.name === "isPinned") ?? false;
+
 export async function getNotesWorkspaceData(searchParams: SearchParams = {}) {
   const nodeId = readParam(searchParams, "node");
   const selectedNoteId = readParam(searchParams, "note");
+  const emptyResult = {
+    nodeId,
+    selectedNoteId,
+    notes: [],
+    searchNotes: [],
+    selectedNote: null,
+    interconnectionsByEntityId: {}
+  };
   if (!hasDatabaseUrl) {
+    return emptyResult;
+  }
+
+  try {
+    const workspaceId = await getActiveWorkspaceId();
+    const where = await buildWorkspaceWhere(workspaceId, nodeId);
+    const noteInclude = {
+      metadataOverride: true,
+      navigationNode: true,
+      entity: true,
+      tags: { include: { tag: true }, orderBy: { tag: { name: "asc" } } }
+    } satisfies Prisma.NoteInclude;
+    const noteOrderBy = [
+      ...(noteSupportsPinnedState ? ([{ isPinned: "desc" }] satisfies Prisma.NoteOrderByWithRelationInput[]) : []),
+      { sortOrder: "asc" },
+      { updatedAt: "desc" },
+      { title: "asc" }
+    ] satisfies Prisma.NoteOrderByWithRelationInput[];
+
+    const [notes, searchNotes, selectedNote] = await Promise.all([
+      prisma.note.findMany({
+        where,
+        orderBy: noteOrderBy,
+        take: 300,
+        include: noteInclude
+      }),
+      prisma.note.findMany({
+        orderBy: noteOrderBy,
+        where: {
+          workspaceId,
+          ...(noteSupportsDeletedAt ? { deletedAt: null } : {})
+        },
+        take: 1000,
+        include: noteInclude
+      }),
+      selectedNoteId
+        ? prisma.note.findFirst({
+            where: {
+              id: selectedNoteId,
+              workspaceId,
+              ...(noteSupportsDeletedAt ? { deletedAt: null } : {})
+            },
+            include: noteInclude
+          })
+        : null
+    ]);
+    const entityIds = uniqueEntityIds([...notes, ...searchNotes, ...(selectedNote ? [selectedNote] : [])]);
+    const interconnectionsByEntityId = await getInterconnectionsByEntityId(workspaceId, entityIds);
+
     return {
       nodeId,
       selectedNoteId,
-      notes: [],
-      searchNotes: [],
-      selectedNote: null
+      notes,
+      searchNotes,
+      selectedNote,
+      interconnectionsByEntityId
     };
+  } catch (error) {
+    if (isPrismaValidationError(error)) {
+      console.warn("Notes workspace query is out of sync with the current Prisma client/runtime. Regenerate Prisma Client and restart the dev server.");
+      return emptyResult;
+    }
+    throw error;
   }
-
-  const workspaceId = await getActiveWorkspaceId();
-  const where = await buildWorkspaceWhere(workspaceId, nodeId);
-  const noteInclude = {
-    metadataOverride: true,
-    navigationNode: true,
-    entity: true
-  } satisfies Prisma.NoteInclude;
-  const noteOrderBy = [{ isPinned: "desc" }, { sortOrder: "asc" }, { updatedAt: "desc" }, { title: "asc" }] satisfies Prisma.NoteOrderByWithRelationInput[];
-
-  const [notes, searchNotes, selectedNote] = await Promise.all([
-    prisma.note.findMany({
-      where,
-      orderBy: noteOrderBy,
-      take: 300,
-      include: noteInclude
-    }),
-    prisma.note.findMany({
-      orderBy: noteOrderBy,
-      where: { workspaceId },
-      take: 1000,
-      include: noteInclude
-    }),
-    selectedNoteId
-      ? prisma.note.findUnique({
-          where: { id: selectedNoteId, workspaceId },
-          include: noteInclude
-        })
-      : null
-  ]);
-  const entityIds = uniqueEntityIds([...notes, ...searchNotes, ...(selectedNote ? [selectedNote] : [])]);
-  const interconnectionsByEntityId = await getInterconnectionsByEntityId(workspaceId, entityIds);
-
-  return {
-    nodeId,
-    selectedNoteId,
-    notes,
-    searchNotes,
-    selectedNote,
-    interconnectionsByEntityId
-  };
 }
 
 async function getInterconnectionsByEntityId(workspaceId: string, entityIds: string[]) {
@@ -120,7 +151,8 @@ async function getInterconnectionsByEntityId(workspaceId: string, entityIds: str
     prisma.note.findMany({
       where: {
         workspaceId,
-        entityId: { in: relatedEntityIds }
+        entityId: { in: relatedEntityIds },
+        ...(noteSupportsDeletedAt ? { deletedAt: null } : {})
       },
       orderBy: [{ updatedAt: "desc" }],
       select: {
@@ -164,10 +196,10 @@ async function getInterconnectionsByEntityId(workspaceId: string, entityIds: str
 }
 
 async function buildWorkspaceWhere(workspaceId: string, nodeId: string | undefined): Promise<Prisma.NoteWhereInput> {
-  if (!nodeId) return { workspaceId };
-  if (nodeId === "unassigned") return { workspaceId, navigationNodeId: null };
+  if (!nodeId) return { workspaceId, ...(noteSupportsDeletedAt ? { deletedAt: null } : {}) };
+  if (nodeId === "unassigned") return { workspaceId, navigationNodeId: null, ...(noteSupportsDeletedAt ? { deletedAt: null } : {}) };
 
-  return { workspaceId, navigationNodeId: nodeId };
+  return { workspaceId, navigationNodeId: nodeId, ...(noteSupportsDeletedAt ? { deletedAt: null } : {}) };
 }
 
 function readParam(searchParams: SearchParams, key: string) {
@@ -182,4 +214,8 @@ function uniqueEntityIds(notes: Array<{ entityId: string | null }>) {
 
 function uniqueStrings(values: string[]) {
   return [...new Set(values)];
+}
+
+function isPrismaValidationError(error: unknown) {
+  return error instanceof Prisma.PrismaClientValidationError;
 }

@@ -347,7 +347,7 @@ export function NavigationSidebarClient({ tree, unassignedCount, showDescendantC
 
   return (
     <aside className="h-full min-h-0 border-b border-white/10 bg-black/35 lg:border-b-0 lg:border-r">
-      <div className="h-full min-h-0 overflow-y-auto px-4 py-5 [scroll-behavior:smooth]">
+      <div className="panel-scroll h-full px-4 py-5">
         <div className="mb-4 flex items-center justify-between gap-3 border-b border-white/10 pb-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-stone-500">Folders</p>
