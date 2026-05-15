@@ -1,4 +1,7 @@
-.env
+node_modules
+dist
+.astro
+.DS_Store.env
 .env.local
 .env.*.local
 .next
@@ -8,3 +11,10 @@ dist
 coverage
 *.log
 .vercel
+node_modules
+dist
+.astro
+.DS_Store
+
+
+
