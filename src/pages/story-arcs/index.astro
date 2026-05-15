@@ -1,0 +1,20 @@
+---
+import ArchiveShell from "@/components/ArchiveShell.astro";
+import RightInspectorPanel from "@/components/RightInspectorPanel.astro";
+import SectionIndexPanel from "@/components/SectionIndexPanel.astro";
+import { getSection } from "@/data/sections";
+import { getAllEntries, getEntriesBySection, getRelatedEntries } from "@/lib/archive";
+
+const section = getSection("story-arcs");
+const entries = await getEntriesBySection("story-arcs");
+const allEntries = await getAllEntries();
+const inspectorEntry = entries[0] ?? allEntries[0];
+const relatedEntries = inspectorEntry ? getRelatedEntries(inspectorEntry, allEntries) : [];
+---
+
+<ArchiveShell title="Story Arcs | ASCU Archive" activeSection="story-arcs">
+  <div class="archive-workspace">
+    <SectionIndexPanel section={section} entries={entries} />
+    <RightInspectorPanel entry={inspectorEntry} relatedEntries={relatedEntries} />
+  </div>
+</ArchiveShell>

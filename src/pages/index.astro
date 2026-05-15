@@ -1,0 +1,19 @@
+---
+import ArchiveShell from "@/components/ArchiveShell.astro";
+import CenterArchivePanel from "@/components/CenterArchivePanel.astro";
+import RightInspectorPanel from "@/components/RightInspectorPanel.astro";
+import { sections } from "@/data/sections";
+import { getAllEntries, getRelatedEntries } from "@/lib/archive";
+
+const entries = await getAllEntries();
+const sectionCounts = Object.fromEntries(sections.map((section) => [section.slug, entries.filter((entry) => entry.category === section.slug).length]));
+const inspectorEntry = entries[0];
+const relatedEntries = inspectorEntry ? getRelatedEntries(inspectorEntry, entries) : [];
+---
+
+<ArchiveShell activeSection="archive">
+  <div class="archive-workspace">
+    <CenterArchivePanel entries={entries} sectionCounts={sectionCounts} />
+    <RightInspectorPanel entry={inspectorEntry} relatedEntries={relatedEntries} />
+  </div>
+</ArchiveShell>

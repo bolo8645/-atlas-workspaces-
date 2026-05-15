@@ -1,0 +1,20 @@
+---
+import ArchiveIcon from "@/components/ArchiveIcon.astro";
+import HudCorners from "@/components/HudCorners.astro";
+import type { ArchiveSection } from "@/data/sections";
+
+type Props = {
+  section: ArchiveSection;
+  count: number;
+};
+
+const { section, count } = Astro.props;
+---
+
+<a class="category-tile" href={section.href}>
+  <HudCorners />
+  <ArchiveIcon class="category-icon" name={section.icon} />
+  <span class="category-label">{section.label}</span>
+  <span class="category-count">{count === 1 ? "Sample Placeholder" : `${count} Entries`}</span>
+  <span class="tile-accent"></span>
+</a>

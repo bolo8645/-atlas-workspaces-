@@ -1,0 +1,25 @@
+---
+import ArchiveShell from "@/components/ArchiveShell.astro";
+import DetailContentPanel from "@/components/DetailContentPanel.astro";
+import RightInspectorPanel from "@/components/RightInspectorPanel.astro";
+import { getAllEntries, getEntriesBySection, getRelatedEntries, type ArchiveEntryView } from "@/lib/archive";
+
+export async function getStaticPaths() {
+  const entries = await getEntriesBySection("organizations");
+  return entries.map((entry) => ({ params: { slug: entry.slug }, props: { entry } }));
+}
+
+const { entry } = Astro.props as { entry: ArchiveEntryView };
+const allEntries = await getAllEntries();
+const relatedEntries = getRelatedEntries(entry, allEntries);
+const { Content } = await entry.entry.render();
+---
+
+<ArchiveShell title={`${entry.title} | ASCU Archive`} activeSection="organizations">
+  <div class="archive-workspace">
+    <DetailContentPanel entry={entry}>
+      <Content />
+    </DetailContentPanel>
+    <RightInspectorPanel entry={entry} relatedEntries={relatedEntries} />
+  </div>
+</ArchiveShell>

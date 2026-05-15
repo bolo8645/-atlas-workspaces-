@@ -1,0 +1,19 @@
+---
+import ArchiveIcon from "@/components/ArchiveIcon.astro";
+import type { ArchiveEntryView } from "@/lib/archive";
+
+type Props = {
+  entry: ArchiveEntryView;
+};
+
+const { entry } = Astro.props;
+const displayTitle = entry.title.startsWith("Sample Placeholder") ? "Sample Placeholder" : entry.title;
+---
+
+<a class="recent-row" href={entry.href}>
+  <ArchiveIcon class="row-icon" name="document" />
+  <span class="recent-title">{displayTitle}</span>
+  <span class="recent-type">{entry.singularLabel}</span>
+  <span class="recent-status">{entry.status}</span>
+  <ArchiveIcon class="row-arrow" name="arrow" />
+</a>

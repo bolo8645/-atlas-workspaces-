@@ -1,0 +1,18 @@
+---
+import ArchiveIcon from "@/components/ArchiveIcon.astro";
+---
+
+<header class="top-archive-bar">
+  <a class="brand-mark" href="/" aria-label="ASCU Archive Home">
+    <span class="brand-glyph">A</span>
+  </a>
+  <a class="archive-title" href="/">Altered Skies Comics Universe</a>
+  <form class="top-search" action="/search" role="search">
+    <ArchiveIcon class="search-icon" name="search" />
+    <label class="sr-only" for="archive-search">Search</label>
+    <input id="archive-search" name="q" type="search" placeholder="Search" />
+  </form>
+  <a class="menu-box" href="#archive-navigation" aria-label="Open archive navigation">
+    <ArchiveIcon class="menu-icon" name="menu" />
+  </a>
+</header>

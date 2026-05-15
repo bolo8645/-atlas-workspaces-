@@ -1,0 +1,84 @@
+---
+type Props = {
+  name?: "archive" | "person" | "city" | "shield" | "network" | "clock" | "cube" | "folder" | "layers" | "search" | "document" | "menu" | "arrow" | "bookmark" | "external";
+  class?: string;
+};
+
+const { name = "archive", class: className = "" } = Astro.props;
+---
+
+<svg aria-hidden="true" class={className} fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.55" viewBox="0 0 24 24">
+  {name === "archive" && (
+    <>
+      <path d="M5 7h14v12H5V7Z" />
+      <path d="M8 7V5h8v2" />
+      <path d="M8 11h8" />
+    </>
+  )}
+  {name === "person" && (
+    <>
+      <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+      <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+    </>
+  )}
+  {name === "city" && (
+    <>
+      <path d="M4 20V8h5v12" />
+      <path d="M9 20V4h7v16" />
+      <path d="M16 20v-9h4v9" />
+      <path d="M7 11h.01M7 15h.01M12 8h.01M12 12h.01M12 16h.01" />
+    </>
+  )}
+  {(name === "shield") && <path d="M12 3 5 6v5c0 4.5 2.8 7.8 7 10 4.2-2.2 7-5.5 7-10V6l-7-3Z" />}
+  {name === "network" && (
+    <>
+      <path d="M4 12h5" />
+      <path d="M9 12 15 6" />
+      <path d="M9 12l6 6" />
+      <path d="M17 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM17 16a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z" />
+    </>
+  )}
+  {name === "clock" && (
+    <>
+      <path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16Z" />
+      <path d="M12 8v5l3 2" />
+    </>
+  )}
+  {name === "cube" && (
+    <>
+      <path d="m12 3 8 4.5-8 4.5-8-4.5L12 3Z" />
+      <path d="M4 7.5v9L12 21l8-4.5v-9" />
+      <path d="M12 12v9" />
+    </>
+  )}
+  {name === "folder" && (
+    <>
+      <path d="M4 6h6l2 2h8v10H4V6Z" />
+      <path d="M4 10h16" />
+    </>
+  )}
+  {name === "layers" && (
+    <>
+      <path d="m12 3 8 4.5-8 4.5-8-4.5L12 3Z" />
+      <path d="m4 12 8 4.5 8-4.5" />
+      <path d="m4 16.5 8 4.5 8-4.5" />
+    </>
+  )}
+  {name === "search" && <path d="m21 21-4.3-4.3m1.3-5.7a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" />}
+  {name === "document" && (
+    <>
+      <path d="M6 3h9l3 3v15H6V3Z" />
+      <path d="M14 3v4h4" />
+      <path d="M9 12h6M9 16h6" />
+    </>
+  )}
+  {name === "menu" && <path d="M5 7h14M5 12h14M5 17h14" />}
+  {name === "arrow" && <path d="m9 6 6 6-6 6" />}
+  {name === "bookmark" && <path d="M7 4h10v16l-5-3-5 3V4Z" />}
+  {name === "external" && (
+    <>
+      <path d="M8 8h8v8" />
+      <path d="M16 8l-9 9" />
+    </>
+  )}
+</svg>

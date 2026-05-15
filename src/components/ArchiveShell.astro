@@ -1,0 +1,38 @@
+---
+import LeftArchiveRail from "@/components/LeftArchiveRail.astro";
+import TopArchiveBar from "@/components/TopArchiveBar.astro";
+import type { SectionSlug } from "@/data/sections";
+import "@/styles/global.css";
+
+type Props = {
+  title?: string;
+  activeSection?: SectionSlug | "archive" | "search";
+};
+
+const { title = "Altered Skies Comics Universe Archive", activeSection = "archive" } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="The static official archive foundation for the Altered Skies Comics Universe." />
+    <link rel="icon" href="/icon.svg" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <TopArchiveBar />
+    <div class="archive-shell">
+      <LeftArchiveRail activeSection={activeSection} />
+      <main class="archive-main">
+        <slot />
+        <footer class="archive-status-strip">
+          <span>Intelligence Archive Interface</span>
+          <span class="strip-reticle" aria-hidden="true"></span>
+          <span>Secure • Verified • Official</span>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

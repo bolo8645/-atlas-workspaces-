@@ -1,0 +1,44 @@
+---
+import CategoryTile from "@/components/CategoryTile.astro";
+import HudPanel from "@/components/HudPanel.astro";
+import RecentEntryRow from "@/components/RecentEntryRow.astro";
+import { sections } from "@/data/sections";
+import type { ArchiveEntryView } from "@/lib/archive";
+
+type Props = {
+  entries: ArchiveEntryView[];
+  sectionCounts: Record<string, number>;
+};
+
+const { entries, sectionCounts } = Astro.props;
+const recentEntries = entries.slice(0, 5);
+---
+
+<HudPanel class="center-archive-panel">
+  <header class="overview-header">
+    <h1>Archive Overview</h1>
+    <p>Explore the official intelligence archive for the Altered Skies Comics Universe.</p>
+  </header>
+
+  <section class="archive-block">
+    <div class="block-heading">
+      <h2>Browse by Category</h2>
+      <span></span>
+      <a href="/search/">View All</a>
+    </div>
+    <div class="category-grid">
+      {sections.map((section) => <CategoryTile section={section} count={sectionCounts[section.slug] ?? 0} />)}
+    </div>
+  </section>
+
+  <section class="archive-block">
+    <div class="block-heading">
+      <h2>Recently Added</h2>
+      <span></span>
+      <a href="/search/">View All</a>
+    </div>
+    <div class="recent-list">
+      {recentEntries.map((entry) => <RecentEntryRow entry={entry} />)}
+    </div>
+  </section>
+</HudPanel>

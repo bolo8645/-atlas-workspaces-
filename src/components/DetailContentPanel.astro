@@ -1,0 +1,42 @@
+---
+import HudPanel from "@/components/HudPanel.astro";
+import StatusPill from "@/components/StatusPill.astro";
+import TagCluster from "@/components/TagCluster.astro";
+import type { ArchiveEntryView } from "@/lib/archive";
+
+type Props = {
+  entry: ArchiveEntryView;
+};
+
+const { entry } = Astro.props;
+---
+
+<HudPanel class="detail-content-panel">
+  <nav class="breadcrumbs" aria-label="Breadcrumb">
+    <a href="/">Archive</a>
+    <span>/</span>
+    <a href={`/${entry.category}/`}>{entry.categoryLabel}</a>
+    <span>/</span>
+    <strong>{entry.title}</strong>
+  </nav>
+
+  <header class="detail-hero">
+    <div>
+      <div class="detail-status-line">
+        <StatusPill status={entry.status} />
+        <span>{entry.singularLabel}</span>
+      </div>
+      <h1>{entry.title}</h1>
+      <p>{entry.summary}</p>
+    </div>
+    <div class="detail-target" aria-hidden="true">
+      <span class="reticle large"></span>
+    </div>
+  </header>
+
+  <article class="markdown-body">
+    <slot />
+  </article>
+
+  <TagCluster tags={entry.tags} />
+</HudPanel>

@@ -1,0 +1,40 @@
+---
+import ArchiveIcon from "@/components/ArchiveIcon.astro";
+import { sections, type SectionSlug } from "@/data/sections";
+
+type Props = {
+  activeSection?: SectionSlug | "archive" | "search";
+};
+
+const { activeSection = "archive" } = Astro.props;
+---
+
+<aside class="left-archive-rail" id="archive-navigation">
+  <nav aria-label="Archive sections" class="rail-nav">
+    <a class:list={["rail-link", { active: activeSection === "archive" }]} href="/">
+      <ArchiveIcon class="rail-icon" name="archive" />
+      <span>Archive</span>
+    </a>
+    {sections.map((section) => (
+      <a class:list={["rail-link", { active: activeSection === section.slug }]} href={section.href}>
+        <ArchiveIcon class="rail-icon" name={section.icon} />
+        <span>{section.label}</span>
+      </a>
+    ))}
+  </nav>
+
+  <div class="rail-status">
+    <div class="status-rule"></div>
+    <p>Archive Systems</p>
+    <strong>Online</strong>
+    <span class="status-dot"></span>
+  </div>
+
+  <a class="mobile-nav-card" href="#archive-navigation">
+    <span class="mobile-nav-icon"><ArchiveIcon name="menu" /></span>
+    <span>
+      <strong>Mobile Nav</strong>
+      <small>Tap to open</small>
+    </span>
+  </a>
+</aside>

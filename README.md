@@ -1,81 +1,113 @@
-# Atlas Workspaces
+# ASCU Official Archive
 
-Atlas Workspaces turns exported Apple Notes files into a structured relational database application. Apple Notes stays the capture layer only; the application imports exported files, parses them, stores preserved source content in PostgreSQL through Prisma, and lets you add searchable database-level metadata without overwriting the original import.
+Static Phase 1 archive site for the Altered Skies Comics Universe.
 
-## Architecture
+This project is intentionally Astro-first and static-only. It does not use Next.js, React, Supabase, Prisma, auth, databases, server actions, CMS services, or external APIs.
 
-- **Import layer:** `scripts/import-notes.ts` runs the importer against `IMPORT_NOTES_DIR`.
-- **Parsing layer:** `lib/import/parser.ts` supports Markdown, plain text, and basic HTML exports with defensive metadata, tag, category, attachment, link, and entity extraction.
-- **Deduplication layer:** `lib/import/importer.ts` upserts by source identity, checksum, title fingerprint, and token similarity. Ambiguous matches become review items.
-- **Data layer:** `prisma/schema.prisma` defines notes, tags, categories, attachments, links, entities, relationships, import runs, import errors, parse warnings, review items, saved searches, and ASCU-ready domain entities.
-- **Backend layer:** `lib/notes/queries.ts`, `lib/notes/mutations.ts`, server actions, and JSON route handlers expose notes, imports, metadata edits, review updates, and importer triggers.
-- **Frontend layer:** Next.js App Router pages provide dashboard, notes list, note detail, import history, tags, categories, attachments, and review queue.
+## Stack
 
-## Folder Structure
+- Astro
+- HTML
+- CSS
+- Astro Content Collections
+- Local Markdown content files
+- Static output
 
-- `app/`: App Router UI and API routes.
-- `app/api/notes`: JSON notes list and note detail/update endpoints.
-- `app/api/imports`: import history and server-side import trigger endpoint.
-- `components/`: shared navigation, search, shells, and display components.
-- `lib/import/`: scanner, parser, fingerprinting, dedupe, upsert, import logging, and inferred relationships.
-- `lib/notes/`: query, mutation, server-action, and display helpers for the app.
-- `prisma/`: database schema and seed entry point.
-- `sample-imports/`: importable sample Markdown, text, HTML, and asset files.
-- `scripts/import-notes.ts`: command-line importer.
+## Project Structure
 
-## Database Model
-
-Primary notes schema:
-
-- `Note`
-- `MetadataOverride`
-- `Tag`
-- `NoteTag`
-- `Category`
-- `NoteCategory`
-- `Attachment`
-- `Link`
-- `Entity`
-- `NoteEntity`
-- `RelatedNote`
-- `SourceCollection`
-- `ImportRun`
-- `NoteImportEvent`
-- `ImportError`
-- `ParseWarning`
-- `ReviewItem`
-- `SavedSearch`
-
-The schema also keeps ASCU-oriented structured models such as `Character`, `City`, `Faction`, `PowerSystem`, `StoryArc`, and `TimelineEvent` so generic notes can later connect to a full comic-universe codex without a rebuild.
-
-## Environment
-
-Create `.env` from `.env.example`:
-
-```bash
-cp .env.example .env
+```text
+src/
+  components/          Reusable archive HUD components
+  content/             Local Markdown entries grouped by section
+  content/config.ts    Astro Content Collections schema
+  data/sections.ts     Navigation and section metadata
+  lib/archive.ts       Static content helpers
+  pages/               Real static routes
+  styles/global.css    Global archive visual system
 ```
 
-Required values:
+## Content
 
-```bash
-DATABASE_URL="postgresql://postgres.[YOUR-PROJECT-REF]:[YOUR-PASSWORD]@[YOUR-POOLER-HOST]:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require"
-DIRECT_URL="postgresql://postgres.[YOUR-PROJECT-REF]:[YOUR-PASSWORD]@[YOUR-POOLER-HOST-OR-DB-HOST]:5432/postgres?sslmode=require"
-IMPORT_NOTES_DIR="./sample-imports"
-NEXT_PUBLIC_APP_NAME="Atlas Workspaces"
-NEXT_PUBLIC_SUPABASE_URL="https://[YOUR-PROJECT-REF].supabase.co"
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_publishable_[YOUR-KEY]"
+Archive entries live in `src/content/<section>/`.
+
+Reusable entry templates live in `content-templates/`. These files are not published by Astro; copy one into the correct `src/content/<section>/` folder when you are ready to create a real archive entry.
+
+Required frontmatter:
+
+```yaml
+title: "Sample Placeholder"
+slug: sample-placeholder
+category: characters
+status: "Status: Verified"
+city: "Sample Placeholder"
+affiliations: ["Sample Placeholder"]
+firstAppearance: "Sample Placeholder"
+tags: ["Sample Placeholder"]
+summary: "Placeholder only."
+featuredImage: ""
+lastUpdated: 2026-05-15
+relatedSlugs: ["another-entry"]
 ```
 
-Optional:
+Timeline entries build into `/timeline/#entry-slug`. Timeline detail pages are not generated unless a future phase explicitly adds them.
 
-```bash
-ADMIN_IMPORT_SECRET=""
+## How to Add ASCU Content
+
+1. Choose the matching template from `content-templates/`.
+2. Copy it into the correct content folder.
+3. Rename the copied file to the final route slug, using lowercase words separated by hyphens.
+4. Update the frontmatter and every `EDIT:` section.
+5. Keep `category` exactly matched to the destination folder.
+6. Do not create custom pages or layouts for individual entries. Every new entry must use the existing archive shell by living as a Markdown file in `src/content/<section>/`.
+7. Run `npm run build` before publishing.
+
+The filename controls the deployed route. For example:
+
+```text
+src/content/characters/atlas-operative.md
 ```
 
-When `ADMIN_IMPORT_SECRET` is set, `POST /api/imports` requires either `x-admin-secret` or `Authorization: Bearer <secret>`.
+builds:
 
-## Local Setup
+```text
+/characters/atlas-operative/
+```
+
+The `slug` frontmatter field is kept for editorial clarity, but Astro derives the actual static route from the Markdown filename. Keep the frontmatter `slug` and filename aligned to avoid confusion.
+
+Section index pages automatically link to detail pages using normal static anchors. For example, `src/content/characters/atlas-operative.md` appears on `/characters/` as a link to `/characters/atlas-operative/`.
+
+Timeline entries are the exception: they appear on `/timeline/` and link to an anchor such as `/timeline/#atlas-operative-event`, not a separate detail page.
+
+Template destinations:
+
+- Character profile: copy `content-templates/character-profile.md` to `src/content/characters/<slug>.md`
+- City profile: copy `content-templates/city-profile.md` to `src/content/cities/<slug>.md`
+- Organization profile: copy `content-templates/organization-profile.md` to `src/content/organizations/<slug>.md`
+- Story arc profile: copy `content-templates/story-arc-profile.md` to `src/content/story-arcs/<slug>.md`
+- Timeline entry: copy `content-templates/timeline-entry.md` to `src/content/timeline/<slug>.md`
+- Concept/lore entry: copy `content-templates/concept-lore-entry.md` to `src/content/concepts/<slug>.md`
+- Faction profile: copy `content-templates/faction-profile.md` to `src/content/factions/<slug>.md`
+- Material/artifact profile: copy `content-templates/material-artifact-profile.md` to `src/content/materials/<slug>.md`
+
+Do not leave `EDIT:` placeholders in published entries. Use clearly sourced ASCU material only; do not invent lore to fill a section.
+
+### Frontmatter Rules
+
+- `title`: display title shown across the archive.
+- `slug`: editorial slug; keep it aligned with the filename.
+- `category`: must be one of `characters`, `cities`, `organizations`, `story-arcs`, `timeline`, `concepts`, `factions`, or `materials`.
+- `status`: short archive status, such as `Status: Draft`, `Status: Verified`, or `Status: Monitoring`.
+- `city`: primary city or `Not specified`.
+- `affiliations`: YAML array of related groups or `["Not specified"]`.
+- `firstAppearance`: issue, document, date, or `Not specified`.
+- `tags`: YAML array used by static search and related-entry matching.
+- `summary`: concise list/search summary.
+- `featuredImage`: leave empty unless a deployment-safe public image path is added.
+- `lastUpdated`: date in `YYYY-MM-DD` format.
+- `relatedSlugs`: YAML array of filenames without `.md`, such as `["sample-city-entry"]`.
+
+## Commands
 
 Install dependencies:
 
@@ -83,166 +115,92 @@ Install dependencies:
 npm install
 ```
 
-Start local PostgreSQL:
-
-```bash
-docker compose up -d
-```
-
-Generate Prisma client:
-
-```bash
-npm run db:generate
-```
-
-Create or update tables:
-
-```bash
-npm run db:migrate -- --name notes_codex_init
-```
-
-Run the importer:
-
-```bash
-npm run import-notes
-```
-
-Start the app:
+Run locally:
 
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:3000`.
-
-## Authentication
-
-- Supabase Auth provides email/password sign-up and sign-in.
-- All application routes are protected. Unauthenticated requests redirect to `/login`.
-- Sessions are stored in cookies and refreshed through `proxy.ts` using `@supabase/ssr`.
-- Workspace ownership is scoped by Supabase Auth user ID. Notes, folders, entities, and relationships remain scoped through their workspace.
-
-## Local Auth Setup
-
-`.env.local` must exist in the project root for local login and signup.
-
-Create it from `.env.local.example`:
+Build static output:
 
 ```bash
-cp .env.local.example .env.local
+npm run build
 ```
 
-Set these browser-safe variables in `.env.local`:
+Preview the built site:
 
 ```bash
-NEXT_PUBLIC_SUPABASE_URL="https://wwzqqtjxsiswwwmzatdi.supabase.co"
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="your-supabase-publishable-key"
+npm run preview
 ```
 
-Where to get them:
+## Deploy
 
-- Supabase project URL: Supabase dashboard -> Project Settings -> API -> Project URL
-- Supabase publishable key: Supabase dashboard -> Project Settings -> API -> Publishable key
+This is a static Astro site. It does not need a running local terminal server after deployment.
 
-Server-only values stay separate:
+The deployment settings are:
 
-- `DATABASE_URL` is server-only and should stay in `.env` or your deployment environment, not in browser code.
-- `DIRECT_URL` is server-only and should stay in `.env`, `.env.local`, or your deployment environment. Prisma CLI uses it for migrate/introspection work that should not go through the transaction pooler.
+- Build command: `npm run build`
+- Output directory: `dist`
+- Environment variables: none
 
-Local login and signup depend on those two `NEXT_PUBLIC_` variables. After changing `.env.local`, restart the Next.js dev server so it reloads the environment variables.
+After a successful build, Astro writes the deployable site into `dist/`.
 
-## Deploying On Vercel
+### Vercel
 
-1. Create a Supabase project.
-2. Configure Prisma database URLs for Supabase serverless usage:
-   - `DATABASE_URL`: Supabase transaction pooler on port `6543` with `pgbouncer=true&connection_limit=1`
-   - `DIRECT_URL`: Supabase session pooler or direct database connection on port `5432` for Prisma CLI commands
-3. Add these Vercel environment variables:
-   - `DATABASE_URL`
-   - `DIRECT_URL`
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-   - `IMPORT_NOTES_DIR` if you need server-side imports in production
-   - `ADMIN_IMPORT_SECRET` if you want to keep the import endpoint separately locked
-4. Configure Supabase Auth redirect URLs to include your deployed origin plus `/auth/confirm`.
-5. Deploy to Vercel. The build flow runs:
-   - `prisma generate`
-   - `prisma migrate deploy`
-   - `next build`
-   This ensures production tables exist before the deployed app starts serving traffic.
-   If your Vercel project has a custom Build Command, point it at `npm run build` or `npm run vercel-build`. A plain `next build` will skip the migration step and leave tables like `Workspace` missing in production.
+Use Vercel's project import flow and select this repository.
 
-Example Vercel values:
+Recommended settings:
+
+- Framework preset: `Astro`
+- Install command: `npm install`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Environment variables: none
+
+The repository includes `vercel.json` with the same build command and output directory.
+
+Vercel will run the build and serve the generated static files from `dist/`. No serverless functions, API routes, database, auth, or runtime environment variables are required for Phase 1.
+
+### Netlify
+
+Use Netlify's "Add new site" flow and connect this repository.
+
+Recommended settings:
+
+- Build command: `npm run build`
+- Publish directory: `dist`
+- Environment variables: none
+
+The repository includes `netlify.toml` with the same build command and publish directory.
+
+Netlify will run the build and publish the static files from `dist/`. No Netlify Functions, database, auth, CMS, or runtime environment variables are required for Phase 1.
+
+### Static Host
+
+Any static host can serve this site by uploading the contents of `dist/` after running:
 
 ```bash
-DATABASE_URL="postgresql://postgres.[YOUR-PROJECT-REF]:[YOUR-PASSWORD]@[YOUR-POOLER-HOST]:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require"
-DIRECT_URL="postgresql://postgres.[YOUR-PROJECT-REF]:[YOUR-PASSWORD]@[YOUR-POOLER-HOST-OR-DB-HOST]:5432/postgres?sslmode=require"
+npm run build
 ```
 
-`DATABASE_URL` is the runtime connection Prisma Client uses on Vercel. `DIRECT_URL` is the non-transaction-pooled connection Prisma uses for migrations and other CLI operations. If `DIRECT_URL` is not set, the scripts fall back to `DATABASE_URL`, but production should set both explicitly.
+Internal navigation uses root-relative links such as `/characters/` and `/search/`, so deployed routes work without client-side routing.
 
-## Import Flow
+## Routes
 
-1. Export Apple Notes into files or folders.
-2. Point `IMPORT_NOTES_DIR` to that export folder.
-3. Run `npm run import-notes` or use the Import History page button.
-4. The importer scans supported files, parses content, fingerprints source text, upserts notes, syncs imported tags/categories/assets/links/entities, records warnings/errors, creates duplicate review items, and rebuilds inferred relationships.
-5. Re-run imports as often as needed. Matching source paths and checksums update or skip existing notes instead of creating duplicate chaos.
-
-Supported note formats for MVP:
-
-- `.md`
-- `.markdown`
-- `.txt`
-- `.html`
-- `.htm`
-
-Local asset references in Markdown and HTML are tracked as `Attachment` records. Files stay in the export folder for the MVP.
-
-## UI Routes
-
-- `/`: dashboard with totals, recent imports, missing metadata, warnings, top tags, top categories, attachments, and orphan notes.
-- `/notes`: searchable, filterable notes list.
-- `/notes/[id]`: preserved source text, clean extracted text, metadata editing, tags, categories, attachments, links, entities, warnings, import history, and manual relationships.
-- `/imports`: import history and importer trigger.
-- `/tags`: tag index.
-- `/categories`: category index.
-- `/attachments`: attachment browser.
-- `/review`: duplicate, parse warning, import error, and missing metadata review queue.
-
-## Search And Filters
-
-The notes list supports:
-
-- keyword search across title, source path, excerpt, body, and curated metadata
-- title-only search
-- body-only search
-- tag filter
-- category filter
-- entity filter
-- status filter
-- import status filter through the API/query layer
-- imported date range
-- notes with attachments
-- notes missing metadata
-- notes with parse warnings
-
-Keyword and body search use PostgreSQL full-text matching through `to_tsvector`/`plainto_tsquery`, with Prisma `contains` filters kept as a defensive fallback for partial matches and metadata fields. A dedicated search engine can later be added behind `lib/notes/queries.ts` without moving search logic into the frontend.
-
-## Preservation Rules
-
-- `Note.importedContent` stores the raw exported source.
-- `Note.plainTextContent` stores parser-normalized text for search and reading.
-- User edits go into `MetadataOverride`, manual tag/category joins, and relationship tables.
-- Metadata editing does not mutate the original imported source text.
-
-## MVP Next Improvements
-
-- Add real PostgreSQL full-text `tsvector` indexes and ranking migrations.
-- Add a background job runner for long imports instead of running inside a request.
-- Add richer HTML sanitization and rendered Markdown.
-- Add entity promotion workflows for characters, teams, locations, organizations, story arcs, artifacts, events, families, power systems, and threat classifications.
-- Add duplicate merge tools with side-by-side comparison.
-- Add graph and timeline views from `RelatedNote`, `Entity`, and timeline-ready date fields.
-- Add AI summaries and entity extraction behind explicit jobs.
-- Add multi-user accounts, roles, public/private note flags, and cloud file storage.
+- `/`
+- `/characters/`
+- `/characters/[slug]/`
+- `/cities/`
+- `/cities/[slug]/`
+- `/organizations/`
+- `/organizations/[slug]/`
+- `/story-arcs/`
+- `/story-arcs/[slug]/`
+- `/timeline/`
+- `/concepts/`
+- `/concepts/[slug]/`
+- `/factions/`
+- `/factions/[slug]/`
+- `/materials/`
+- `/materials/[slug]/`
+- `/search/`

@@ -1,0 +1,16 @@
+---
+import HudCorners from "@/components/HudCorners.astro";
+
+type Props = {
+  class?: string;
+  title?: string;
+};
+
+const { class: className = "", title } = Astro.props;
+---
+
+<section class={`hud-panel ${className}`}>
+  <HudCorners />
+  {title && <h2 class="hud-section-title">{title}</h2>}
+  <slot />
+</section>

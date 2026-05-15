@@ -1,0 +1,13 @@
+---
+type Props = {
+  tags: string[];
+};
+
+const { tags } = Astro.props;
+---
+
+{tags.length > 0 && (
+  <div class="tag-cluster">
+    {tags.map((tag) => <span class="tag-chip">{tag}</span>)}
+  </div>
+)}

@@ -1,0 +1,17 @@
+---
+import ArchiveShell from "@/components/ArchiveShell.astro";
+import RightInspectorPanel from "@/components/RightInspectorPanel.astro";
+import SearchPanel from "@/components/SearchPanel.astro";
+import { getAllEntries, getRelatedEntries } from "@/lib/archive";
+
+const entries = await getAllEntries();
+const inspectorEntry = entries[0];
+const relatedEntries = inspectorEntry ? getRelatedEntries(inspectorEntry, entries) : [];
+---
+
+<ArchiveShell title="Search | ASCU Archive" activeSection="search">
+  <div class="archive-workspace">
+    <SearchPanel entries={entries} />
+    <RightInspectorPanel entry={inspectorEntry} relatedEntries={relatedEntries} />
+  </div>
+</ArchiveShell>

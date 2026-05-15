@@ -1,0 +1,77 @@
+---
+import ArchiveIcon from "@/components/ArchiveIcon.astro";
+import HudPanel from "@/components/HudPanel.astro";
+import MetadataTable from "@/components/MetadataTable.astro";
+import TagCluster from "@/components/TagCluster.astro";
+import type { ArchiveEntryView } from "@/lib/archive";
+
+type Props = {
+  entry?: ArchiveEntryView;
+  relatedEntries?: ArchiveEntryView[];
+};
+
+const { entry, relatedEntries = [] } = Astro.props;
+const inspectorTitle = entry?.title.startsWith("Sample Placeholder") ? "Sample Placeholder" : entry?.title;
+const getDisplayTitle = (title: string) => (title.startsWith("Sample Placeholder") ? "Sample Placeholder" : title);
+---
+
+<HudPanel class="right-inspector">
+  {entry ? (
+    <>
+      <div class="inspector-top">
+        <a href={entry.category === "timeline" ? "/timeline/" : `/${entry.category}/`}>← Archive</a>
+        <div class="inspector-actions" aria-hidden="true">
+          <ArchiveIcon name="bookmark" />
+          <ArchiveIcon name="external" />
+        </div>
+      </div>
+
+      <header class="inspector-heading">
+        <h2>{inspectorTitle}</h2>
+        <p>Entry</p>
+      </header>
+
+      <div class="scan-frame">
+        <span class="scan-corner tl"></span>
+        <span class="scan-corner tr"></span>
+        <span class="scan-corner bl"></span>
+        <span class="scan-corner br"></span>
+        <span class="reticle"></span>
+      </div>
+
+      <MetadataTable entry={entry} />
+
+      <section class="inspector-section">
+        <div class="section-rule">
+          <h3>Tags</h3>
+        </div>
+        <TagCluster tags={entry.tags} />
+      </section>
+
+      <section class="inspector-section">
+        <div class="section-rule">
+          <h3>Related Entries</h3>
+        </div>
+        <div class="related-list">
+          {relatedEntries.length > 0 ? (
+            relatedEntries.map((related) => (
+              <a href={related.href}>
+                <ArchiveIcon name="document" />
+                <span>{getDisplayTitle(related.title)}</span>
+                <ArchiveIcon name="arrow" />
+              </a>
+            ))
+          ) : (
+            <p class="empty-related">No related entries indexed.</p>
+          )}
+        </div>
+      </section>
+    </>
+  ) : (
+    <div class="empty-inspector">
+      <p>Archive Inspector</p>
+      <h2>No Entry Selected</h2>
+      <span class="reticle large"></span>
+    </div>
+  )}
+</HudPanel>

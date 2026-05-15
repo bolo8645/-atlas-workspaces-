@@ -1,0 +1,18 @@
+---
+import ArchiveShell from "@/components/ArchiveShell.astro";
+import RightInspectorPanel from "@/components/RightInspectorPanel.astro";
+import TimelinePanel from "@/components/TimelinePanel.astro";
+import { getAllEntries, getEntriesBySection, getRelatedEntries } from "@/lib/archive";
+
+const entries = await getEntriesBySection("timeline");
+const allEntries = await getAllEntries();
+const inspectorEntry = entries[0] ?? allEntries[0];
+const relatedEntries = inspectorEntry ? getRelatedEntries(inspectorEntry, allEntries) : [];
+---
+
+<ArchiveShell title="Timeline | ASCU Archive" activeSection="timeline">
+  <div class="archive-workspace">
+    <TimelinePanel entries={entries} />
+    <RightInspectorPanel entry={inspectorEntry} relatedEntries={relatedEntries} />
+  </div>
+</ArchiveShell>

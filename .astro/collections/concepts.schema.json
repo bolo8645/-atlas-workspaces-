@@ -1,0 +1,84 @@
+{
+  "$ref": "#/definitions/concepts",
+  "definitions": {
+    "concepts": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "default": "Unreviewed"
+        },
+        "city": {
+          "type": "string",
+          "default": "Not specified"
+        },
+        "affiliations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "firstAppearance": {
+          "type": "string",
+          "default": "Not specified"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "summary": {
+          "type": "string",
+          "default": "Summary pending approved ASCU content."
+        },
+        "featuredImage": {
+          "type": "string",
+          "default": ""
+        },
+        "lastUpdated": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "integer",
+              "format": "unix-time"
+            }
+          ]
+        },
+        "relatedSlugs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "category": {
+          "type": "string",
+          "const": "concepts"
+        },
+        "$schema": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "lastUpdated",
+        "category"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -1,0 +1,35 @@
+---
+import HudPanel from "@/components/HudPanel.astro";
+import StatusPill from "@/components/StatusPill.astro";
+import type { ArchiveEntryView } from "@/lib/archive";
+
+type Props = {
+  entries: ArchiveEntryView[];
+};
+
+const { entries } = Astro.props;
+---
+
+<HudPanel class="timeline-panel">
+  <header class="overview-header">
+    <p class="eyebrow">Archive Section</p>
+    <h1>Timeline</h1>
+    <p>Chronology records for approved ASCU continuity. Timeline records are static anchors, not separate detail pages.</p>
+  </header>
+
+  <div class="timeline-list">
+    {entries.map((entry) => (
+      <article class="timeline-entry" id={entry.slug}>
+        <div class="timeline-marker"></div>
+        <div>
+          <div class="timeline-meta">
+            <StatusPill status={entry.status} />
+            <span>{entry.firstAppearance}</span>
+          </div>
+          <h2>{entry.title}</h2>
+          <p>{entry.summary}</p>
+        </div>
+      </article>
+    ))}
+  </div>
+</HudPanel>

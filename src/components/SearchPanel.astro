@@ -1,0 +1,52 @@
+---
+import ArchiveIcon from "@/components/ArchiveIcon.astro";
+import HudPanel from "@/components/HudPanel.astro";
+import StatusPill from "@/components/StatusPill.astro";
+import type { ArchiveEntryView } from "@/lib/archive";
+
+type Props = {
+  entries: ArchiveEntryView[];
+};
+
+const { entries } = Astro.props;
+---
+
+<HudPanel class="search-panel">
+  <header class="overview-header">
+    <p class="eyebrow">Local Search</p>
+    <h1>Search the Archive</h1>
+    <p>Search the static index of archive metadata, summaries, tags, affiliations, and chronology notes.</p>
+  </header>
+
+  <div class="search-control">
+    <ArchiveIcon name="search" />
+    <label class="sr-only" for="local-search">Search archive</label>
+    <input id="local-search" type="search" placeholder="Search lore, cities, tags..." />
+  </div>
+
+  <div class="search-results" id="search-results">
+    {entries.map((entry) => (
+      <a class="search-row" href={entry.href} data-search-row data-search-text={entry.searchText}>
+        <div>
+          <StatusPill status={entry.status} />
+          <span>{entry.categoryLabel}</span>
+        </div>
+        <h2>{entry.title}</h2>
+        <p>{entry.summary}</p>
+      </a>
+    ))}
+  </div>
+</HudPanel>
+
+<script>
+  const input = document.querySelector<HTMLInputElement>("#local-search");
+  const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-search-row]"));
+
+  input?.addEventListener("input", () => {
+    const query = input.value.trim().toLowerCase();
+    for (const row of rows) {
+      const text = row.dataset.searchText ?? "";
+      row.hidden = query.length > 0 && !text.includes(query);
+    }
+  });
+</script>
